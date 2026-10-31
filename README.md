@@ -61,6 +61,8 @@ The header has a **Mock / Live** toggle on every page. The server decides the mo
 
 Copy `server/.env.example` to `server/.env`. Nothing is required to try either door against the public demo — set `PRIVILEGE_GATEWAY_HOST` (and friends) to point Privilege mode at your own Agent Privilege, or `DIRECT_MCP_URL` to point Direct mode at any other MCP server you run.
 
+Optional hosted defaults, in the shared settings file: `HOSTED_MCPGW_URL` (an https gateway origin; used for the Privilege doors when `PRIVILEGE_GATEWAY_HOST` is not set) and `HOSTED_HOSTILE_MCP_URL` (an https origin; its `/mcp` becomes the Direct hostile preset when `DIRECT_HOSTILE_MCP_URL` is not set). Ask the owner for the values. Mock mode ignores both. Unset means the defaults below.
+
 ### Live integration tests
 
 Run with `MODE=live` (the live suite contacts real gateways). The opt-in live suite checks configured Gateway allow/deny behavior with door-scoped OAuth tokens. The interactive runner signs in to both app audiences with the same test identity and keeps each bearer in memory. For setup and safe fixture requirements, see [`server/INTEGRATION_TESTS.md`](server/INTEGRATION_TESTS.md).
@@ -70,7 +72,7 @@ Run with `MODE=live` (the live suite contacts real gateways). The opt-in live su
 Two doors ship for the hostile MCP server (`standalone/hostile-mcp-server`, behind Privilege as the `libre` app):
 
 - **Privilege — libre** — through the gateway. Its `tools/list` shows the poisoned tools arriving, and a `create_transfer` call is denied by the app's policy.
-- **Direct — Hostile MCP (no Privilege)** — the raw server, no gateway. Run it first: `cd standalone/hostile-mcp-server && npm start` (defaults to `http://127.0.0.1:8899/`; override with `DIRECT_HOSTILE_MCP_URL`).
+- **Direct — Hostile MCP (no Privilege)** — the raw server, no gateway. Run it first: `cd standalone/hostile-mcp-server && npm start` (defaults to `http://127.0.0.1:8899/`; override with `DIRECT_HOSTILE_MCP_URL`, or set `HOSTED_HOSTILE_MCP_URL`).
 
 Switch between the two on the same call to see exactly what Privilege adds. See `docs/superpowers/specs/2026-09-13-hostile-mcp-behind-privilege-design.md`.
 
