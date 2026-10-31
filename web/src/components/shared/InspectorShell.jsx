@@ -5,7 +5,7 @@ import { useThemeOptional } from '../../context/ThemeContext';
 import './InspectorShell.css';
 
 const LEFT_COLLAPSED_KEY = 'inspector-shell-left-collapsed';
-const NARROW_QUERY = '(max-width: 768px)';
+const NARROW_QUERY = '(max-width: 900px)';
 
 function loadLeftCollapsed() {
   try {
