@@ -72,7 +72,7 @@ Run with `MODE=live` (the live suite contacts real gateways). The opt-in live su
 Two doors ship for the hostile MCP server (`standalone/hostile-mcp-server`, behind Privilege as the `libre` app):
 
 - **Privilege — libre** — through the gateway. Its `tools/list` shows the poisoned tools arriving, and a `create_transfer` call is denied by the app's policy.
-- **Direct — Hostile MCP (no Privilege)** — the raw server, no gateway. Run it first: `cd standalone/hostile-mcp-server && npm start` (defaults to `http://127.0.0.1:8899/`; override with `DIRECT_HOSTILE_MCP_URL`, or set `HOSTED_HOSTILE_MCP_URL`).
+- **Direct — Hostile MCP (no Privilege)** — the raw server, no gateway. Run it first: `cd standalone/hostile-mcp-server && npm start` (defaults to `http://127.0.0.1:8899/`; override with `DIRECT_HOSTILE_MCP_URL`, or set `HOSTED_HOSTILE_MCP_URL`). In Direct mode only, a server that answers an unauthenticated `initialize` with no OAuth challenge needs no sign-in: **Sign in** skips the browser step and requests go out without a token. The Privilege gateway doors always need a real sign-in.
 
 Switch between the two on the same call to see exactly what Privilege adds. See `docs/superpowers/specs/2026-09-13-hostile-mcp-behind-privilege-design.md`.
 
