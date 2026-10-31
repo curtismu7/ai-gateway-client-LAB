@@ -152,8 +152,15 @@ export default function App() {
     }
     const { data, ok } = await api.post('/api/gateway/auth/start', { returnTo: '/' });
     if (!ok) { setBanner({ message: data?.error || 'Failed to start sign-in.' }); return; }
+    // An open Direct-mode server has no OAuth: nothing to sign in to, and no redirect reloads the page,
+    // so refresh the state and list the tools here.
+    if (data.open) {
+      const next = await loadState();
+      if (next?.oauth?.authenticated) await loadTools();
+      return;
+    }
     window.location.href = data.authUrl;
-  }, [doorUrlInput, state]);
+  }, [doorUrlInput, state, loadState, loadTools]);
 
   const signOut = useCallback(async () => {
     await api.post('/api/gateway/auth/logout');
