@@ -198,17 +198,6 @@
   stroke-width: 3;
 }
 
-.react-flow__edge-text {
-  fill: var(--text);
-}
-
-/* The label backing must follow the theme, or light text sits on a white box in dark mode. */
-.react-flow__edge-textbg {
-  fill: var(--surface);
-  stroke: var(--border);
-  stroke-width: 1;
-}
-
 .flow-step {
   border: 1px solid var(--border);
   border-left: 4px solid var(--accent);
