@@ -9,7 +9,7 @@
     "dev": "npm run dev --prefix server & npm run dev --prefix web",
     "build": "npm run build --prefix web",
     "start": "npm run build --prefix web && npm start --prefix server",
-    "test": "npm test --prefix server",
+    "test": "npm test --prefix server && npm test --prefix web",
     "doctor": "node scripts/doctor.mjs",
     "reset": "node scripts/reset.mjs"
   },
