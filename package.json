@@ -10,5 +10,8 @@
     "build": "npm run build --prefix web",
     "start": "npm run build --prefix web && npm start --prefix server",
     "test": "npm test --prefix server"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
