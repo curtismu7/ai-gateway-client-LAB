@@ -99,3 +99,13 @@ docker run -p 127.0.0.1:6880:6880 -v ai-gateway-client-data:/root/.ai-gateway-cl
 ## Not included
 
 Adapted from a larger internal tool that also compared LLM-call policy enforcement (chat completions through a separate "Privilege LLM Gateway" lane vs. direct-to-provider) and a third "Façade" door mode that proxied through this same tool's own durable OAuth broker so a standalone MCP client's registration survived a gateway restart. Both depend on hosting infrastructure this standalone tool doesn't have, so they were left out — this build is scoped to the MCP tool-calling gateway itself.
+
+## Ports, and what to do if the port is taken
+
+This app listens on **6880** (set with `PORT`). Port range for this app: 6880-6889.
+
+If the port is taken:
+1. Find what is using it: `lsof -iTCP:<port> -sTCP:LISTEN -n -P`
+2. If it is an old copy of this app, stop that process: `kill <PID>`
+3. If it is something else, stop it, or start this app on another port: `PORT=6881 npm start`
+4. Do not use 8080, 5173, 3000, 4000, 4400, 4510, 4600-4601, 18080, 19080 or 19090. Other demos and tools use them.
