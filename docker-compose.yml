@@ -8,6 +8,7 @@ services:
       - "127.0.0.1:${HOST_PORT:-6880}:6880"
     environment:
       PORT: "6880"
+      MODE: "mock"
     env_file:
       - path: ${STANDALONE_ENV:-../.env}
         required: false

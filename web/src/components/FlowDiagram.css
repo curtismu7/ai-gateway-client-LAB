@@ -1,0 +1,124 @@
+.flow-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  font-family: var(--font-primary);
+  color: var(--text);
+}
+
+.flow-panel__title {
+  margin: 0;
+  font-size: 15px;
+}
+
+.flow-panel__lede,
+.flow-step__why {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.flow-panel__msg {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.flow-panel__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-panel__speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.flow-panel__speed select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 4px 6px;
+}
+
+.flow-panel__count {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.flow-canvas {
+  height: 440px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.flow-node {
+  width: 200px;
+  border-radius: 8px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-primary);
+  box-shadow: none;
+}
+
+.flow-node--red { border-color: var(--accent); }
+.flow-node--dark { border-color: var(--text); }
+.flow-node--blue { border-color: var(--focus); }
+.flow-node--grey,
+.flow-node--green,
+.flow-node--amber { border-color: var(--border); }
+
+.flow-node__body {
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.flow-node__title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.flow-node__sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.flow-edge .react-flow__edge-path {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+
+.flow-edge--on .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+.react-flow__edge-text {
+  fill: var(--text);
+}
+
+.flow-step {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.flow-step p {
+  margin: 4px 0 0;
+}
+
+@media (max-width: 480px) {
+  .flow-canvas { height: 300px; }
+}

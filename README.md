@@ -7,21 +7,34 @@ A local, no-login test client for an OAuth-protected [MCP](https://modelcontextp
 
 It shows the same tool call through two paths — **straight at the gateway** (Privilege mode, policy enforced) and **no gateway in the path at all** (Direct mode) — so you can see exactly what the gateway adds: the same call succeeding, being refused, or being logged, depending only on which door you went through. Both doors default to the public Ping AI Demo instance and work with zero setup; point either at your own MCP server/gateway when you're ready.
 
+Repo: https://github.com/ping-sandbox/ai-gateway-client-LAB
+
 ## Installation
 
 **Prerequisites:** Node.js 22+ and npm. Docker is optional (a `Dockerfile` is included).
+
+### Run from a clone
+
+```bash
+git clone https://github.com/ping-sandbox/ai-gateway-client-LAB.git
+cd ai-gateway-client-LAB
+npm install --prefix server
+npm install --prefix web
+npm run build --prefix web
+npm start                      # mock mode on http://127.0.0.1:6880
+```
 
 ```bash
 git clone https://github.com/ping-sandbox/ai-gateway-client-LAB.git
 cd ai-gateway-client
 npm run install:all   # installs both server/ and web/
-npm start              # builds the UI, then starts the server on :6880
+npm start              # builds the UI, then starts the server on :6880 (mock mode)
 ```
 
 Verify it's up:
 
 ```bash
-curl http://127.0.0.1:6880/health
+curl http://127.0.0.1:6880/api/health
 ```
 
 Then open http://127.0.0.1:6880. It defaults to the **Privilege** door on the public Ping AI Demo gateway — click **Sign in** and complete the OAuth flow in your browser (no client registration needed; the tool registers itself with the gateway on the fly via RFC 7591 Dynamic Client Registration). Switch to the **Direct** door to make the same call with no gateway in front — it defaults to the same demo's façade, which is a separate self-advertising, open-registration broker, so it also needs no setup.
@@ -35,13 +48,22 @@ Then open http://127.0.0.1:6880. It defaults to the **Privilege** door on the pu
 - **Relay log** — every request/response this tool sends and receives, live over SSE, so you can see exactly what went over the wire.
 - **Privilege console door discovery** (optional) — paste your Privilege console session's `auth_token` cookie to pull in every Agentic App and policy registered on your environment as selectable doors, no code change or redeploy needed.
 
+## Mock and live mode
+
+The header has a **Mock / Live** toggle on every page. The server decides the mode (`MODE=mock` is the default; `MODE=live` in the environment is treated as your own confirmed choice). Switching to Live at runtime asks for a confirm.
+
+- **Mock (default, offline).** Sign-in is a PKCE + Dynamic Client Registration flow against an in-process mock issuer (the browser's authorize step is this app's own `/api/gateway/mock-idp/authorize`). The mock MCP gateway serves four OpenSearch-style tools, and its Privilege-style door filters two more by policy, so a `delete_index` call is refused with 403. Tool results are generated in-process and labelled simulated. Tokens are mock-issued and labelled mock. Nothing leaves the machine.
+- **Live (owner-run).** Contacts the gateway URL you enter, and the sign-in server that gateway advertises, with real sign-in and real tool calls. Privilege console features are live only.
+- **Flow tab.** The sign-in sequence is drawn from the shared diagram-studio data in `diagrams/auth-code-pkce.json`, with Simulate, Reset and a speed control.
+- **Netguard** (`server/lib/netguard.js`). Every outbound request goes through it. In mock mode no outbound request is made, and `GET /api/gateway/netguard` runs a self-test of the policy. In live mode it allows https (loopback http only), only the origin you typed or the gateway advertised, refuses link-local and metadata addresses, follows only same-origin redirects, and caps time (20 s) and size (2 MB).
+
 ## Config
 
 Copy `server/.env.example` to `server/.env`. Nothing is required to try either door against the public demo — set `PRIVILEGE_GATEWAY_HOST` (and friends) to point Privilege mode at your own Agent Privilege, or `DIRECT_MCP_URL` to point Direct mode at any other MCP server you run.
 
 ### Live integration tests
 
-The opt-in live suite checks configured Gateway allow/deny behavior with door-scoped OAuth tokens. The interactive runner signs in to both app audiences with the same test identity and keeps each bearer in memory. For setup and safe fixture requirements, see [`server/INTEGRATION_TESTS.md`](server/INTEGRATION_TESTS.md).
+Run with `MODE=live` (the live suite contacts real gateways). The opt-in live suite checks configured Gateway allow/deny behavior with door-scoped OAuth tokens. The interactive runner signs in to both app audiences with the same test identity and keeps each bearer in memory. For setup and safe fixture requirements, see [`server/INTEGRATION_TESTS.md`](server/INTEGRATION_TESTS.md).
 
 ### Red-team demo: the hostile MCP server
 
@@ -51,6 +73,12 @@ Two doors ship for the hostile MCP server (`standalone/hostile-mcp-server`, behi
 - **Direct — Hostile MCP (no Privilege)** — the raw server, no gateway. Run it first: `cd standalone/hostile-mcp-server && npm start` (defaults to `http://127.0.0.1:8899/`; override with `DIRECT_HOSTILE_MCP_URL`).
 
 Switch between the two on the same call to see exactly what Privilege adds. See `docs/superpowers/specs/2026-09-13-hostile-mcp-behind-privilege-design.md`.
+
+## Tests
+
+```bash
+npm test --prefix server   # node:test, run on Node 22; mock-mode tests prove zero outbound attempts
+```
 
 ## Development
 
@@ -65,9 +93,19 @@ The OAuth callback URL is derived from whichever host the browser used to reach 
 
 ```bash
 docker build -t ai-gateway-client .
-docker run -p 6880:6880 -v ai-gateway-client-data:/root/.ai-gateway-client ai-gateway-client
+docker run -p 127.0.0.1:6880:6880 -v ai-gateway-client-data:/root/.ai-gateway-client ai-gateway-client
 ```
 
 ## Not included
 
 Adapted from a larger internal tool that also compared LLM-call policy enforcement (chat completions through a separate "Privilege LLM Gateway" lane vs. direct-to-provider) and a third "Façade" door mode that proxied through this same tool's own durable OAuth broker so a standalone MCP client's registration survived a gateway restart. Both depend on hosting infrastructure this standalone tool doesn't have, so they were left out — this build is scoped to the MCP tool-calling gateway itself.
+
+## Ports, and what to do if the port is taken
+
+This app listens on **6880** (set with `PORT`). Port range for this app: 6880-6889.
+
+If the port is taken:
+1. Find what is using it: `lsof -iTCP:<port> -sTCP:LISTEN -n -P`
+2. If it is an old copy of this app, stop that process: `kill <PID>`
+3. If it is something else, stop it, or start this app on another port: `PORT=6881 npm start`
+4. Do not use 8080, 5173, 3000, 4000, 4400, 4510, 4600-4601, 18080, 19080 or 19090. Other demos and tools use them.

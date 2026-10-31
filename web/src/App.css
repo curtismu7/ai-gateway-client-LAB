@@ -151,3 +151,25 @@ input.wide, select.wide { min-width: 260px; }
   color: var(--on-accent);
   border-color: transparent;
 }
+
+.banner--simulated {
+  border-left-color: var(--focus);
+}
+
+.banner--live {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Phone width: the topbar wraps so the mode toggle and theme toggle stay on screen. */
+@media (max-width: 600px) {
+  .inspector-shell-topbar {
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+  .inspector-shell-topbar__right {
+    margin-left: 0;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+}
