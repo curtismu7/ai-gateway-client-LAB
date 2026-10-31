@@ -320,6 +320,12 @@ test('resources/read: unknown uri is an error, bad input is refused', async () =
     // A template matches by shape, but an id that does not exist is still not found.
     const noDoc = await rpc(token, DIRECT, 'resources/read', { uri: 'opensearch://indices/support-articles/documents/KB-999' });
     assert.equal(noDoc.error.code, -32002);
+    // Object property names and broken percent escapes are just not found, never a raw error.
+    for (const uri of ['opensearch://indices/__proto__/documents/x', 'opensearch://indices/constructor/documents/x', 'opensearch://indices/%E0%A4%A/documents/x']) {
+      const out = await rpc(token, DIRECT, 'resources/read', { uri });
+      assert.equal(out.error.code, -32002, uri);
+      assert.equal(/TypeError|URI malformed|is not a function/.test(JSON.stringify(out)), false, uri);
+    }
   });
 });
 
@@ -485,6 +491,12 @@ test('API: GET lists the samples with counts, PUT switches, an unknown id is 400
     assert.equal(bad.status, 400);
     assert.equal((await bad.json()).error, 'unknown_sample');
     assert.equal(mock.sampleId(), 'large', 'a refused change leaves the sample as it was');
+    // Names that exist on every object are not samples.
+    for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+      const proto = await putSample(base, name);
+      assert.equal(proto.status, 400, name);
+      assert.equal(mock.sampleId(), 'large', `${name} leaves the sample as it was`);
+    }
   });
 });
 

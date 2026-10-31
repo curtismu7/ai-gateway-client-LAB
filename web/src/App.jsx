@@ -16,7 +16,7 @@ const OUTPUT_TABS = [
   { key: 'flow', label: 'Flow' },
 ];
 
-const SIMULATED_BANNER = 'Mock mode. Sign-in, the MCP gateway, its tool list and every tool result run inside this app process. Nothing leaves this machine. Tokens and client ids shown are mock-issued and labelled as mock.';
+const SIMULATED_BANNER = 'Mock mode. Sign-in, the MCP gateway, its tool list and every tool result run inside this app process. No sign-in, gateway or tool traffic leaves this machine (the page only fetches its fonts from Google Fonts). Tokens and client ids shown are mock-issued and labelled as mock.';
 const LIVE_BANNER = 'Requests go to the gateway URL you enter and to the sign-in server that gateway advertises. Sign-in and tool calls are real.';
 
 function coerceParam(raw, type) {

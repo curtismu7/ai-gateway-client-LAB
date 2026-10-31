@@ -148,7 +148,8 @@ const standard = {
   templates: [
     { uriTemplate: 'opensearch://indices/{index}/documents/{id}', name: 'index-document', title: 'Index document', description: 'One document from an index, as JSON. Try support-articles and KB-101.', mimeType: 'application/json',
       render: ({ index, id }) => {
-        const doc = (INDICES[index] || []).find((d) => d.id === id);
+        const docs = Object.prototype.hasOwnProperty.call(INDICES, index) ? INDICES[index] : [];
+        const doc = docs.find((d) => d.id === id);
         return doc ? json({ index, _id: doc.id, _source: { title: doc.title, body: doc.body } }) : null;
       } },
   ],
@@ -410,7 +411,7 @@ function ids() {
 }
 
 function get(id) {
-  return SAMPLES[id] || null;
+  return Object.prototype.hasOwnProperty.call(SAMPLES, id) ? SAMPLES[id] : null;
 }
 
 const allowed = (item, grants) => !item.requires || grants.includes(item.requires);
@@ -511,7 +512,11 @@ function matchTemplate(uriTemplate, uri) {
   const match = new RegExp(`^${pattern}$`).exec(uri);
   if (!match) return null;
   const vars = {};
-  names.forEach((name, i) => { vars[name] = decodeURIComponent(match[i + 1]); });
+  try {
+    names.forEach((name, i) => { vars[name] = decodeURIComponent(match[i + 1]); });
+  } catch (_e) {
+    return null;
+  }
   return vars;
 }
 
