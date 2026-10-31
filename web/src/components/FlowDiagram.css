@@ -2,7 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-width: 0;
+  /* Narrower than this the canvas is a sliver. The output column scrolls sideways instead. */
+  min-width: 280px;
   font-family: var(--font-primary);
   color: var(--text);
 }
@@ -15,6 +16,12 @@
 .flow-panel__lede,
 .flow-step__why {
   margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.flow-panel__hint {
+  margin: 0;
   color: var(--muted);
   font-size: 12px;
 }
@@ -178,12 +185,13 @@
 }
 
 .flow-node__title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
 }
 
+/* 14px is BOX_MIN_FONT_PX in lib/viewFit.js: the zoom floor is worked out from it. */
 .flow-node__sub {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--muted);
   margin-top: 2px;
 }
@@ -212,5 +220,5 @@
 }
 
 @media (max-width: 600px) {
-  .flow-canvas { height: 300px; }
+  .flow-canvas { height: 380px; }
 }
