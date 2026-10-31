@@ -1,5 +1,5 @@
 {
-  "name": "ai-gateway-client",
+  "name": "ai-gateway-client-LAB",
   "version": "1.0.0",
   "private": true,
   "description": "OAuth PKCE + Dynamic Client Registration test client for an OAuth-protected MCP gateway (PingOne Agent Privilege by default).",

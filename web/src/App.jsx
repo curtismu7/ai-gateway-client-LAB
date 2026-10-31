@@ -268,6 +268,7 @@ export default function App() {
       right={right}
       banner={
         <>
+          <p className="banner">Not simulated: this app connects to the gateway you choose. Mock mode is not built yet.</p>
           <div className="source-bar">
             <select
               value={`${state.gatewayMode}::${state.config.mcpUrl || ''}`}

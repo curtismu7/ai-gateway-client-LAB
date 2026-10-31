@@ -1,31 +1,20 @@
-/* Design tokens InspectorShell.css (copied from the banking demo) expects.
-   Minimal light/dark pair — swap these for your own brand if you fork this. */
+/* Design tokens InspectorShell.css expects, mapped onto the shared standard (standalone-ui.css).
+   Change colours in standalone-ui.css, not here. */
 :root {
-  --th-bg-page: #ffffff;
-  --th-bg-inset: #f8fafc;
-  --th-bg-card: #ffffff;
-  --th-bg-hover: #f1f5f9;
-  --th-border: #e2e8f0;
-  --th-text: #0f172a;
-  --th-text-muted: #64748b;
-  --th-text-invert: #ffffff;
+  --th-bg-page: var(--bg);
+  --th-bg-inset: var(--surface-2);
+  --th-bg-card: var(--surface);
+  --th-bg-hover: var(--surface-2);
+  --th-border: var(--border);
+  --th-text: var(--text);
+  --th-text-muted: var(--muted);
+  --th-text-invert: var(--on-accent);
   --font-size-3xs: 10px;
   --font-size-2xs: 11px;
   --font-size-xs: 12px;
   --font-size-sm: 13px;
   --font-size-base: 14px;
   --font-size-body: 14px;
-}
-
-:root[data-theme='dark'] {
-  --th-bg-page: #0f172a;
-  --th-bg-inset: #1e293b;
-  --th-bg-card: #1e293b;
-  --th-bg-hover: #334155;
-  --th-border: #334155;
-  --th-text: #e2e8f0;
-  --th-text-muted: #94a3b8;
-  --th-text-invert: #0f172a;
 }
 
 body {
@@ -57,8 +46,8 @@ body {
 }
 .btn:hover { background: var(--th-bg-hover); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn--primary { background: #2563eb; border-color: #2563eb; color: #fff; }
-.btn--danger { border-color: #dc2626; color: #dc2626; }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn--danger { border-color: var(--accent); color: var(--accent); }
 
 select, input, textarea {
   font-size: var(--font-size-xs);
@@ -86,11 +75,10 @@ input.wide, select.wide { min-width: 260px; }
   align-items: center;
   gap: 12px;
   padding: 8px 20px;
-  background: #eff6ff;
-  color: #1e40af;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
   font-size: var(--font-size-xs);
 }
-:root[data-theme='dark'] .page-banner { background: #1e3a5f; color: #bfdbfe; }
 
 .tool-tree {
   padding: 8px;
@@ -136,7 +124,7 @@ input.wide, select.wide { min-width: 260px; }
   padding: 10px;
 }
 .tool-output__timing { font-size: var(--font-size-xs); margin-top: 8px; }
-.tool-output__timing--error { color: #dc2626; }
+.tool-output__timing--error { color: var(--accent); }
 
 .relay-log__row {
   border-bottom: 1px solid var(--th-border);
@@ -155,4 +143,11 @@ input.wide, select.wide { min-width: 260px; }
   word-break: break-word;
   margin: 0;
 }
-.relay-log__row--error .relay-log__type { color: #dc2626; }
+.relay-log__row--error .relay-log__type { color: var(--accent); }
+
+/* Primary action in this app: the Ping Red gradient, white text. */
+.btn--primary {
+  background: linear-gradient(90deg, #d20e0f 55%, #aa0005);
+  color: var(--on-accent);
+  border-color: transparent;
+}

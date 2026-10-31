@@ -7,28 +7,42 @@ const ThemeContext = createContext(null);
 
 export const THEME_STORAGE_KEY = 'ai_gateway_client_dark_mode';
 
+// null = no choice yet, so follow the system setting (prefers-color-scheme).
 function readStoredDarkMode() {
   try {
-    return localStorage.getItem(THEME_STORAGE_KEY) === 'true';
+    const v = localStorage.getItem(THEME_STORAGE_KEY);
+    return v === null ? null : v === 'true';
   } catch {
-    return false;
+    return null;
   }
 }
 
+function systemPrefersDark() {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches === true;
+}
+
 export function ThemeProvider({ children }) {
-  const [darkMode, setDarkMode] = useState(readStoredDarkMode);
+  const [choice, setChoice] = useState(readStoredDarkMode);
+  const darkMode = choice ?? systemPrefersDark();
 
   useEffect(() => {
+    const root = document.documentElement;
+    if (choice === null) {
+      // No explicit choice: let standalone-ui.css follow the system setting.
+      root.removeAttribute('data-theme');
+      return;
+    }
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, String(darkMode));
+      localStorage.setItem(THEME_STORAGE_KEY, String(choice));
     } catch {
       // Private mode / storage disabled — the attribute below still applies
       // for this session, the choice just doesn't survive a reload.
     }
-    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
-  }, [darkMode]);
+    root.setAttribute('data-theme', choice ? 'dark' : 'light');
+  }, [choice]);
 
-  const toggleDarkMode = useCallback(() => setDarkMode((v) => !v), []);
+  const setDarkMode = useCallback((v) => setChoice(v), []);
+  const toggleDarkMode = useCallback(() => setChoice(!darkMode), [darkMode]);
 
   const value = useMemo(() => ({ darkMode, setDarkMode, toggleDarkMode }), [darkMode, toggleDarkMode]);
 
