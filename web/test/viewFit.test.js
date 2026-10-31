@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   BOX_MIN_FONT_PX, LEGIBLE_PX, FIT_PAD, MAX_ZOOM,
-  legibleZoom, boundsOf, fitViewport, shouldRefit, createFitTracker, debounce,
+  legibleZoom, boundsOf, fitViewport, revealViewport, shouldRefit, createFitTracker, debounce,
 } from '../src/lib/viewFit.js';
 
-// The four boxes of the auth-code-pkce diagram, in flow units (200 wide, 96 tall).
+// A wide row of four boxes, 1000 flow units across: too wide for most canvases, so it exercises the zoom floor.
+// (The real diagram is compact; test/diagramLayout.test.js covers it.)
 const rects = [
   { x: 0, y: 0, w: 200, h: 96 }, { x: 400, y: 0, w: 200, h: 96 },
   { x: 800, y: 0, w: 200, h: 96 }, { x: 800, y: 320, w: 200, h: 96 },
@@ -130,4 +131,42 @@ test('the CSS box text sizes match the constants the zoom floor is worked out fr
   };
   const smallest = Math.min(size('.flow-node__title'), size('.flow-node__sub'));
   assert.equal(smallest, BOX_MIN_FONT_PX);
+});
+
+// revealViewport: Simulate pans to the boxes a step names.
+const view = { x: 8, y: 8, zoom: 0.72 };
+const canvas = { w: 300, h: 380 };
+
+test('revealViewport leaves a target that is already on the canvas alone', () => {
+  assert.equal(revealViewport({ view, target: { x: 0, y: 0, w: 200, h: 96 }, size: canvas }), null);
+});
+
+test('revealViewport pans just far enough to bring a box in from the right and from below', () => {
+  const right = revealViewport({ view, target: { x: 400, y: 0, w: 160, h: 96 }, size: canvas });
+  assert.equal(right.zoom, view.zoom);
+  assert.equal(right.y, view.y, 'did not move vertically');
+  assert.ok(Math.abs((400 + 160) * view.zoom + right.x - (canvas.w - FIT_PAD)) < 1e-9, 'right edge sits at the pad');
+  const below = revealViewport({ view, target: { x: 0, y: 700, w: 160, h: 96 }, size: canvas });
+  assert.equal(below.x, view.x, 'did not move sideways');
+  assert.ok(Math.abs((700 + 96) * view.zoom + below.y - (canvas.h - FIT_PAD)) < 1e-9);
+});
+
+test('revealViewport brings a box in from the left and from above', () => {
+  const panned = { x: -500, y: -400, zoom: 0.72 };
+  const v = revealViewport({ view: panned, target: { x: 100, y: 100, w: 160, h: 96 }, size: canvas });
+  assert.ok(Math.abs(100 * 0.72 + v.x - FIT_PAD) < 1e-9);
+  assert.ok(Math.abs(100 * 0.72 + v.y - FIT_PAD) < 1e-9);
+});
+
+test('revealViewport anchors a target larger than the canvas at its top left, and never changes the zoom', () => {
+  const v = revealViewport({ view, target: { x: 50, y: 20, w: 2000, h: 2000 }, size: canvas });
+  assert.equal(50 * view.zoom + v.x, FIT_PAD);
+  assert.equal(20 * view.zoom + v.y, FIT_PAD);
+  assert.equal(v.zoom, view.zoom);
+});
+
+test('revealViewport has nothing to do without a view, a target or a canvas', () => {
+  assert.equal(revealViewport({ view: null, target: { x: 0, y: 0, w: 1, h: 1 }, size: canvas }), null);
+  assert.equal(revealViewport({ view, target: null, size: canvas }), null);
+  assert.equal(revealViewport({ view, target: { x: 0, y: 0, w: 1, h: 1 }, size: { w: 0, h: 380 } }), null);
 });

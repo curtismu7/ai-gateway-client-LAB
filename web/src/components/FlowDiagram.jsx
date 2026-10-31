@@ -5,7 +5,7 @@ import './FlowDiagram.css';
 import { api } from '../lib/api';
 import { routeEdges, polylinePath } from '../lib/edgeRouting';
 import { placeLabels } from '../lib/labelPlacement';
-import { boundsOf, createFitTracker, debounce, fitViewport, legibleZoom, MAX_ZOOM, shouldRefit } from '../lib/viewFit';
+import { boundsOf, createFitTracker, debounce, fitViewport, legibleZoom, MAX_ZOOM, revealViewport, shouldRefit } from '../lib/viewFit';
 
 // Playback pause between steps, by speed setting.
 const SPEED_MS = { slow: 2600, normal: 1500, fast: 800 };
@@ -213,6 +213,22 @@ export default function FlowDiagram({ name }) {
     return true;
   }, [tracker]);
 
+  // Simulate follows the step: when the boxes it names are not all on the canvas (a narrow panel at the legibility
+  // floor), pan the smallest distance that shows them. The zoom stays where it is.
+  useEffect(() => {
+    const rf = flowRef.current;
+    const el = canvasRef.current;
+    if (!currentStep || !diagram || !rf || !el) return;
+    const named = new Set();
+    for (const i of currentStep.edges || []) {
+      const e = diagram.edges[i];
+      if (e) { named.add(e.source); named.add(e.target); }
+    }
+    const target = boundsOf(nodeRects(nodesRef.current).filter((r) => named.has(r.id)));
+    const view = revealViewport({ view: rf.getViewport(), target, size: { w: el.clientWidth, h: el.clientHeight } });
+    if (view) rf.setViewport(view);
+  }, [currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // First fit, and the fit after Reset, wait until every box has been measured so the bounds are real.
   useEffect(() => {
     if (!pendingFit.current || !ready || nodes.length === 0 || !nodes.every((n) => n.measured)) return;
@@ -302,7 +318,7 @@ export default function FlowDiagram({ name }) {
           <LabelLayer labels={labels} routes={routes} rects={rects} lit={lit} onModes={onModes} />
         </ReactFlow>
       </div>
-      {clipped && <p className="flow-panel__hint">This panel is narrower than the diagram at a readable size. Drag the diagram to pan, or press Fit.</p>}
+      {clipped && <p className="flow-panel__hint">This panel is narrower than the diagram at a readable size. Drag the diagram to pan, or press Fit. Simulate pans to each step.</p>}
       {legend.length > 0 && (
         <ol className="flow-legend" aria-label="Arrow labels">
           {legend.map((i) => (

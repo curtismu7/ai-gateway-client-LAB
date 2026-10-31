@@ -179,7 +179,7 @@ export default function App() {
 
   const selectItem = useCallback((next) => {
     // On a phone the columns stack, so bring the detail into view.
-    if (window.matchMedia('(max-width: 768px)').matches) {
+    if (window.matchMedia('(max-width: 900px)').matches) {
       setTimeout(() => document.querySelector('.inspector-shell-col-middle')?.scrollIntoView({ block: 'start' }), 0);
     }
     setSelected(next);

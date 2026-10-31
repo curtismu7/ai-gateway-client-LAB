@@ -53,6 +53,27 @@ export function fitViewport({ bounds, size, pad = FIT_PAD, minZoom = legibleZoom
   };
 }
 
+// One axis of revealViewport: the offset that puts [start, start+len] (flow units) on the canvas.
+function reveal(start, len, offset, zoom, extent, pad) {
+  const a = start * zoom + offset;
+  const b = a + len * zoom;
+  if (a >= pad - 0.5 && b <= extent - pad + 0.5) return offset;
+  if (len * zoom + 2 * pad > extent || a < pad) return pad - start * zoom;
+  return extent - pad - (start + len) * zoom;
+}
+
+/**
+ * The smallest pan that brings target ({x,y,w,h} in flow units) onto the canvas, at the zoom the view already has.
+ * Returns the new { x, y, zoom }, or null when the target is already in view. A target larger than the canvas
+ * is anchored at its top left. Simulate uses this to follow the step that is playing.
+ */
+export function revealViewport({ view, target, size, pad = FIT_PAD }) {
+  if (!view || !target || !size || size.w <= 0 || size.h <= 0) return null;
+  const x = reveal(target.x, target.w, view.x, view.zoom, size.w, pad);
+  const y = reveal(target.y, target.h, view.y, view.zoom, size.h, pad);
+  return x === view.x && y === view.y ? null : { x, y, zoom: view.zoom };
+}
+
 /** Should a change of canvas size refit the view? Not when the user moved or zoomed it, or the size did not change. */
 export function shouldRefit({ moved, prev, next }) {
   if (moved) return false;
