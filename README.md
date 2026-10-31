@@ -11,7 +11,7 @@ Repo: https://github.com/ping-sandbox/ai-gateway-client-LAB
 
 ## Installation
 
-**Prerequisites:** Node.js 22+ and npm. Docker is optional (a `Dockerfile` is included).
+**Prerequisites:** Node.js 26+ and npm. Docker is optional (a `Dockerfile` is included).
 
 ### Run from a clone
 
@@ -79,7 +79,7 @@ Switch between the two on the same call to see exactly what Privilege adds. See 
 ## Tests
 
 ```bash
-npm test --prefix server   # node:test, run on Node 22; mock-mode tests prove zero outbound attempts
+npm test --prefix server   # node:test, run on Node 26; mock-mode tests prove zero outbound attempts
 ```
 
 ## Development
