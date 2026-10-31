@@ -1,0 +1,152 @@
+{
+  "schema": "diagram-studio/1",
+  "id": "auth-code-pkce",
+  "title": "Authorization code with PKCE",
+  "lede": "A public client signs a user in. The code is useless without the verifier only the client holds.",
+  "groups": {
+    "people": {
+      "label": "People and apps",
+      "color": "dark"
+    },
+    "idp": {
+      "label": "Identity provider",
+      "color": "red"
+    },
+    "api": {
+      "label": "Resource server",
+      "color": "grey"
+    }
+  },
+  "nodes": [
+    {
+      "id": "user",
+      "group": "people",
+      "label": "User",
+      "sub": [
+        "signs in, approves"
+      ],
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "client",
+      "group": "people",
+      "label": "Client app",
+      "sub": [
+        "makes code_verifier",
+        "sends only its hash"
+      ],
+      "x": 400,
+      "y": 0
+    },
+    {
+      "id": "as",
+      "group": "idp",
+      "label": "Authorization server",
+      "sub": [
+        "/authorize and /token"
+      ],
+      "x": 800,
+      "y": 0
+    },
+    {
+      "id": "api",
+      "group": "api",
+      "label": "API",
+      "sub": [
+        "validates the access token"
+      ],
+      "x": 800,
+      "y": 320
+    }
+  ],
+  "edges": [
+    {
+      "source": "client",
+      "target": "as",
+      "label": "authorize request + code_challenge"
+    },
+    {
+      "source": "user",
+      "target": "as",
+      "label": "authenticates and consents",
+      "dashed": true
+    },
+    {
+      "source": "as",
+      "target": "client",
+      "label": "redirect with one-time code"
+    },
+    {
+      "source": "client",
+      "target": "as",
+      "label": "code + code_verifier"
+    },
+    {
+      "source": "as",
+      "target": "client",
+      "label": "access token"
+    },
+    {
+      "source": "client",
+      "target": "api",
+      "label": "Bearer access token"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Start",
+      "what": "The client hashes a random verifier and sends the hash with the authorize request.",
+      "why": "An intercepted code cannot be redeemed without the verifier.",
+      "edges": [
+        0
+      ],
+      "story": {
+        "id": "S01",
+        "step": 1
+      },
+      "hop": "authorize"
+    },
+    {
+      "title": "Sign in",
+      "what": "The user authenticates at the authorization server and approves.",
+      "edges": [
+        1
+      ],
+      "story": {
+        "id": "S01",
+        "step": 2
+      },
+      "hop": "authenticate"
+    },
+    {
+      "title": "Code back",
+      "what": "The server redirects to the client with a short-lived code.",
+      "edges": [
+        2
+      ],
+      "hop": "redirect"
+    },
+    {
+      "title": "Redeem",
+      "what": "The client sends the code and the original verifier; the server checks the hash.",
+      "edges": [
+        3
+      ],
+      "story": {
+        "id": "S01",
+        "step": 3
+      },
+      "hop": "token"
+    },
+    {
+      "title": "Call the API",
+      "what": "The access token is issued and used as a Bearer token.",
+      "edges": [
+        4,
+        5
+      ],
+      "hop": "api-call"
+    }
+  ]
+}

@@ -7,6 +7,8 @@ const path = require('path');
 
 process.env.DOOR_STORE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-gateway-client-test-'));
 process.env.GATEWAY_ENV_PATH = path.join(process.env.DOOR_STORE_DIR, 'gateway.env');
+// These tests drive a real loopback MCP server, which is live mode by design (mock mode refuses it).
+process.env.MODE = 'live';
 
 const http = require('http');
 const express = require('express');

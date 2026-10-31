@@ -2,13 +2,19 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import InspectorShell from './components/shared/InspectorShell';
 import InspectorTabs from './components/shared/InspectorTabs';
 import InspectorListItem from './components/shared/InspectorListItem';
+import ModeToggle from './components/ModeToggle';
+import FlowDiagram from './components/FlowDiagram';
 import { api } from './lib/api';
 
 const OUTPUT_TABS = [
   { key: 'response', label: 'Response' },
   { key: 'request', label: 'Request' },
   { key: 'log', label: 'Relay log' },
+  { key: 'flow', label: 'Flow' },
 ];
+
+const SIMULATED_BANNER = 'Mock mode. Sign-in, the MCP gateway, its tool list and every tool result run inside this app process. Nothing leaves this machine. Tokens and client ids shown are mock-issued and labelled as mock.';
+const LIVE_BANNER = 'Requests go to the gateway URL you enter and to the sign-in server that gateway advertises. Sign-in and tool calls are real.';
 
 function coerceParam(raw, type) {
   if (raw === '') return undefined;
@@ -40,6 +46,7 @@ export default function App() {
   const [showConsoleForm, setShowConsoleForm] = useState(false);
   const [consoleToken, setConsoleToken] = useState('');
   const [probeResults, setProbeResults] = useState(null);
+  const [modeConfirm, setModeConfirm] = useState(false);
 
   const [selectedTool, setSelectedTool] = useState(null);
   const [paramValues, setParamValues] = useState({});
@@ -161,6 +168,20 @@ export default function App() {
     setProbeResults(data?.results || []);
   }, [state]);
 
+  const changeMode = useCallback(async (next, confirm = false) => {
+    const { ok, data } = await api.put('/api/gateway/mode', { mode: next, confirm });
+    if (!ok) {
+      if (data?.error === 'confirm_required') { setModeConfirm(true); return; }
+      setBanner({ message: data?.message || 'Mode change refused.' });
+      return;
+    }
+    setModeConfirm(false);
+    setEvents([]);
+    setLastInvoke(null);
+    setSelectedTool(null);
+    await loadState();
+  }, [loadState]);
+
   const connectConsole = useCallback(async () => {
     const { data, ok } = await api.post('/api/gateway/console/connect', { authToken: consoleToken });
     if (!ok) { setBanner({ message: data?.error || 'Console connect failed.' }); return; }
@@ -182,6 +203,7 @@ export default function App() {
 
   if (!state) return <div style={{ padding: 20 }}>Loading…</div>;
 
+  const isMock = state.mode?.current !== 'live';
   const doorLabel = state.gatewayMode === 'privilege' ? 'Privilege — straight at the Agent Privilege' : 'Direct — no Privilege in the path';
 
   const left = (
@@ -237,7 +259,9 @@ export default function App() {
   const right = (
     <div className="tool-output">
       <InspectorTabs tabs={OUTPUT_TABS} activeKey={outputTab} onChange={setOutputTab} />
-      {outputTab === 'log' ? (
+      {outputTab === 'flow' ? (
+        <FlowDiagram name="auth-code-pkce" />
+      ) : outputTab === 'log' ? (
         <div className="relay-log">
           {events.length === 0 && <div className="tool-tree__empty">No relay activity yet.</div>}
           {events.slice().reverse().map((ev, i) => (
@@ -250,7 +274,7 @@ export default function App() {
       ) : (
         <pre className="tool-output__json">{outputValue === null || outputValue === undefined ? '—' : JSON.stringify(outputValue, null, 2)}</pre>
       )}
-      {lastTiming && outputTab !== 'log' && (
+      {lastTiming && (outputTab === 'response' || outputTab === 'request') && (
         <div className={lastTiming.error ? 'tool-output__timing tool-output__timing--error' : 'tool-output__timing'}>
           {lastTiming.error ? 'Failed' : 'OK'} in {lastTiming.ms}ms
         </div>
@@ -263,12 +287,22 @@ export default function App() {
       title="Agent Privilege Client"
       statusOn={state.oauth.authenticated}
       statusText={doorLabel}
+      actions={<ModeToggle mode={state.mode?.current || 'mock'} onChange={(m) => changeMode(m)} />}
       left={left}
       middle={middle}
       right={right}
       banner={
         <>
-          <p className="banner">Not simulated: this app connects to the gateway you choose. Mock mode is not built yet.</p>
+          <p className={isMock ? 'banner banner--simulated' : 'banner banner--live'} role="status">
+            <strong>{isMock ? 'Simulated: ' : 'Live: '}</strong>{isMock ? SIMULATED_BANNER : LIVE_BANNER}
+          </p>
+          {modeConfirm && (
+            <div className="page-banner">
+              Switch to Live? It contacts the gateway URL you enter and the sign-in server it advertises, with real sign-in.
+              <button type="button" className="btn btn--primary" onClick={() => changeMode('live', true)}>Switch to live</button>
+              <button type="button" className="btn" onClick={() => setModeConfirm(false)}>Stay in mock</button>
+            </div>
+          )}
           <div className="source-bar">
             <select
               value={`${state.gatewayMode}::${state.config.mcpUrl || ''}`}
@@ -295,7 +329,7 @@ export default function App() {
             )}
             <button type="button" className="btn" onClick={loadTools} disabled={!state.oauth.authenticated}>Refresh tools</button>
             <button type="button" className="btn" onClick={runProbe} disabled={!state.oauth.authenticated}>Probe other doors</button>
-            <button type="button" className="btn" onClick={() => setShowConsoleForm((v) => !v)}>Connect Privilege console</button>
+            {!isMock && <button type="button" className="btn" onClick={() => setShowConsoleForm((v) => !v)}>Connect Privilege console</button>}
           </div>
           {showConsoleForm && (
             <div className="add-server-form">
