@@ -42,7 +42,7 @@ Then open http://127.0.0.1:6880. It defaults to the **Privilege** door on the pu
 ## What it does
 
 - **OAuth PKCE + DCR** — discovers the gateway's own authorization server (RFC 9728 protected-resource metadata, or a `WWW-Authenticate` challenge), registers itself as a client if the gateway doesn't already trust one (RFC 7591), and runs the PKCE Authorization Code flow. Falls back to plain PingOne OIDC discovery if you point it at an environment id instead.
-- **Tools** — `tools/list` / `tools/call`, with a policy summary (how many tools were filtered by the gateway vs. permitted).
+- **Tools, resources, templates and prompts** — `tools/list` / `tools/call`, `resources/list` / `resources/read`, `resources/templates/list`, `prompts/list` / `prompts/get`. Each has its own tab with names, descriptions and badges, a counts line for the active door, and a policy summary (what the gateway hid vs. permitted). A server that does not offer one of them shows Not supported by this server.
 - **Raw MCP requests** — anything that isn't `tools/call`: resources, prompts, completion, tasks.
 - **Doors probe** — "denied here — does this identity work anywhere else?" Tries the current token against every other configured door in one click. A `401` can mark a different OAuth audience; a `403` can indicate a policy denial.
 - **Relay log** — every request/response this tool sends and receives, live over SSE, so you can see exactly what went over the wire.
@@ -52,10 +52,35 @@ Then open http://127.0.0.1:6880. It defaults to the **Privilege** door on the pu
 
 The header has a **Mock / Live** toggle on every page. The server decides the mode (`MODE=mock` is the default; `MODE=live` in the environment is treated as your own confirmed choice). Switching to Live at runtime asks for a confirm.
 
-- **Mock (default, offline).** Sign-in is a PKCE + Dynamic Client Registration flow against an in-process mock issuer (the browser's authorize step is this app's own `/api/gateway/mock-idp/authorize`). The mock MCP gateway serves four OpenSearch-style tools, and its Privilege-style door filters two more by policy, so a `delete_index` call is refused with 403. Tool results are generated in-process and labelled simulated. Tokens are mock-issued and labelled mock. Nothing leaves the machine.
+- **Mock (default, offline).** Sign-in is a PKCE + Dynamic Client Registration flow against an in-process mock issuer (the browser's authorize step is this app's own `/api/gateway/mock-idp/authorize`). The mock MCP gateway serves one of six selectable samples (see Mock samples below). In the default sample it serves four OpenSearch-style tools, and its Privilege-style door filters two more by policy, so a `delete_index` call is refused with 403. Tool results are generated in-process and labelled simulated. Tokens are mock-issued and labelled mock. No sign-in, gateway or tool traffic leaves the machine; the page itself still fetches its fonts from Google Fonts.
 - **Live (owner-run).** Contacts the gateway URL you enter, and the sign-in server that gateway advertises, with real sign-in and real tool calls. Privilege console features are live only.
 - **Flow tab.** The sign-in sequence is drawn from the shared diagram-studio data in `diagrams/auth-code-pkce.json`, with Simulate, Reset and a speed control, plus zoom and fit buttons. Arrows between the same two boxes each get their own lane. Arrow labels are placed so none overlap or sit on a box; one that does not fit becomes a numbered badge, and its text is listed under the diagram. Labels follow their arrow when you drag a box.
 - **Netguard** (`server/lib/netguard.js`). Every outbound request goes through it. In mock mode no outbound request is made, and `GET /api/gateway/netguard` runs a self-test of the policy. In live mode it allows https (loopback http only), only the origin you typed or the gateway advertised, refuses link-local and metadata addresses, follows only same-origin redirects, and caps time (20 s) and size (2 MB).
+
+## Mock samples
+
+In mock mode the in-process gateway serves one of six samples. Pick one from the **Mock sample** list under the source bar. The choice is held by the server, like the mode, and the **Reset** (`npm run reset`, or `POST /api/reset`) puts it back to **Standard**. The list is mock only: in Live mode you see what the real gateway serves, and the API refuses the change.
+
+| Sample | What it is for |
+| --- | --- |
+| Minimal | 2 tools and 1 resource. It declares no prompts, so the Prompts tab shows Not supported by this server. |
+| Standard (default) | The 4 search tools, 2 admin tools that the Privilege door hides, 4 resources, 1 resource template and 2 prompts. One resource carries HTML-looking text and invisible characters in its description and content, to show they are only ever displayed as text. |
+| Large | 40 tools in seven areas, served 10 per page with `nextCursor`, and 12 resources (2 pages). The panel says "Loaded 40 tools in 4 pages". |
+| Empty | Declares tools, resources and prompts and has none. Every tab shows a plain empty state. |
+| Policy-heavy | A ledger server with 14 tools. The Direct door lists all 14. The Privilege door lists 5 and reports 9 hidden by policy, and hides 5 of 8 resources and 2 of 3 prompts. |
+| Docs | 3 tools, 20 resources of three types (`text/markdown`, `application/json`, `text/plain`) and 1 template. |
+
+All names, texts and addresses are invented (hosts end in `.example` or `.invalid`). The Privilege door shows an item only when the signed-in mock user holds the grant the item needs (the mock token carries a `grants` claim). The Direct door has no policy.
+
+API (mock mode only; both answer 409 `mock_only` in Live mode):
+
+```bash
+curl http://127.0.0.1:6880/api/gateway/mock/sample                       # list samples, counts per door, active one
+curl -X PUT -H 'Content-Type: application/json' -d '{"sample":"large"}' \
+  http://127.0.0.1:6880/api/gateway/mock/sample                          # switch (sign-in is kept, lists are cleared)
+```
+
+The UI treats every description as untrusted text. It is rendered as plain text, never as HTML, and invisible or direction-changing characters are listed and shown as `[U+XXXX]` markers. The counts line reads, for example, "Privilege: 5 tools, 3 resources, 1 prompt (9 tools, 5 resources, 2 prompts hidden by policy)", with the other door's counts next to it.
 
 ## Config
 
@@ -72,14 +97,14 @@ Run with `MODE=live` (the live suite contacts real gateways). The opt-in live su
 Two doors ship for the hostile MCP server (`standalone/hostile-mcp-server`, behind Privilege as the `libre` app):
 
 - **Privilege — libre** — through the gateway. Its `tools/list` shows the poisoned tools arriving, and a `create_transfer` call is denied by the app's policy.
-- **Direct — Hostile MCP (no Privilege)** — the raw server, no gateway. Run it first: `cd standalone/hostile-mcp-server && npm start` (defaults to `http://127.0.0.1:8899/`; override with `DIRECT_HOSTILE_MCP_URL`, or set `HOSTED_HOSTILE_MCP_URL`).
+- **Direct — Hostile MCP (no Privilege)** — the raw server, no gateway. Run it first: `cd standalone/hostile-mcp-server && npm start` (defaults to `http://127.0.0.1:8899/`; override with `DIRECT_HOSTILE_MCP_URL`, or set `HOSTED_HOSTILE_MCP_URL`). In Direct mode only, a server that answers an unauthenticated `initialize` with no OAuth challenge needs no sign-in: **Sign in** skips the browser step and requests go out without a token. The Privilege gateway doors always need a real sign-in.
 
 Switch between the two on the same call to see exactly what Privilege adds. See `docs/superpowers/specs/2026-09-13-hostile-mcp-behind-privilege-design.md`.
 
 ## Tests
 
 ```bash
-npm test --prefix server   # node:test, run on Node 26; mock-mode tests prove zero outbound attempts
+npm test --prefix server   # node:test, run on Node 26 (77 tests); mock-mode tests prove zero outbound attempts
 ```
 
 ## Development
