@@ -123,7 +123,7 @@ export default function FlowDiagram({ name }) {
           edges={edges}
           onNodesChange={onNodesChange}
           fitView
-          fitViewOptions={{ padding: 0.08 }}
+          fitViewOptions={{ padding: 0.15 }}
           minZoom={0.4}
           maxZoom={1.5}
           nodesConnectable={false}

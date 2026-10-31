@@ -76,7 +76,8 @@ input.wide, select.wide { min-width: 260px; }
   gap: 12px;
   padding: 8px 20px;
   background: var(--accent-soft);
-  color: var(--accent-deep);
+  color: var(--text);
+  border-left: 4px solid var(--accent);
   font-size: var(--font-size-xs);
 }
 
