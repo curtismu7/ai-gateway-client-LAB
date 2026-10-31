@@ -5,10 +5,15 @@ import './FlowDiagram.css';
 import { api } from '../lib/api';
 import { routeEdges, polylinePath } from '../lib/edgeRouting';
 import { placeLabels } from '../lib/labelPlacement';
+import { boundsOf, createFitTracker, debounce, fitViewport, legibleZoom, MAX_ZOOM, revealViewport, shouldRefit } from '../lib/viewFit';
 
 // Playback pause between steps, by speed setting.
 const SPEED_MS = { slow: 2600, normal: 1500, fast: 800 };
 const COLOR_CLASS = new Set(['red', 'dark', 'grey', 'blue', 'green', 'amber']);
+// The view never zooms out past the point where box text drops under the legibility floor. Past it the user pans.
+const MIN_ZOOM = legibleZoom();
+// A resize settles this long before the view is refitted.
+const REFIT_DEBOUNCE_MS = 150;
 
 /** Builds ReactFlow nodes and edges from diagram-studio/1 data. Nothing is hand-drawn here. */
 export function buildNodes(diagram) {
@@ -142,6 +147,12 @@ export default function FlowDiagram({ name }) {
   const [speed, setSpeed] = useState('normal');
   const [placed, setPlaced] = useState([]);
   const flowRef = useRef(null);
+  const canvasRef = useRef(null);
+  const [ready, setReady] = useState(false);
+  const tracker = useRef(createFitTracker()).current;
+  const pendingFit = useRef(true);
+  const lastSize = useRef(null);
+  const [clipped, setClipped] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,15 +195,83 @@ export default function FlowDiagram({ name }) {
     setPlaying(true);
   }, [playing, step, stepCount]);
 
-  const fit = useCallback(() => { flowRef.current?.fitView({ padding: 0.18 }); }, []);
+  // Fit shows every box at the largest zoom that keeps box text legible (viewFit.js). It runs on Fit, on Reset, once
+  // the boxes are measured, and when the canvas is resized and the user has not moved the view since the last fit.
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const fit = useCallback(() => {
+    const rf = flowRef.current;
+    const el = canvasRef.current;
+    if (!rf || !el) return false;
+    const size = { w: el.clientWidth, h: el.clientHeight };
+    const view = fitViewport({ bounds: boundsOf(nodeRects(nodesRef.current)), size, minZoom: MIN_ZOOM, maxZoom: MAX_ZOOM });
+    if (!view) return false;
+    rf.setViewport({ x: view.x, y: view.y, zoom: view.zoom });
+    lastSize.current = size;
+    setClipped(view.clipped);
+    tracker.fitted();
+    return true;
+  }, [tracker]);
+
+  // Simulate follows the step: when the boxes it names are not all on the canvas (a narrow panel at the legibility
+  // floor), pan the smallest distance that shows them. The zoom stays where it is.
+  useEffect(() => {
+    const rf = flowRef.current;
+    const el = canvasRef.current;
+    if (!currentStep || !diagram || !rf || !el) return;
+    const named = new Set();
+    for (const i of currentStep.edges || []) {
+      const e = diagram.edges[i];
+      if (e) { named.add(e.source); named.add(e.target); }
+    }
+    const target = boundsOf(nodeRects(nodesRef.current).filter((r) => named.has(r.id)));
+    const view = revealViewport({ view: rf.getViewport(), target, size: { w: el.clientWidth, h: el.clientHeight } });
+    if (view) rf.setViewport(view);
+  }, [currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // First fit, and the fit after Reset, wait until every box has been measured so the bounds are real.
+  useEffect(() => {
+    if (!pendingFit.current || !ready || nodes.length === 0 || !nodes.every((n) => n.measured)) return;
+    if (fit()) pendingFit.current = false;
+  });
+
+  // Resize: refit after the size settles, unless the user has moved or zoomed the view.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const settle = debounce(() => {
+      const next = { w: el.clientWidth, h: el.clientHeight };
+      if (shouldRefit({ moved: tracker.moved, prev: lastSize.current, next })) fit();
+    }, REFIT_DEBOUNCE_MS);
+    const ro = new ResizeObserver(settle);
+    ro.observe(el);
+    return () => { ro.disconnect(); settle.cancel(); };
+  }, [diagram, fit, tracker]);
 
   // Reset stops the walkthrough, clears the highlight, and puts every box back where the data places it.
+  // The boxes keep their measured size, so the refit has real bounds straight away.
   const reset = useCallback(() => {
     setPlaying(false);
     setStep(-1);
-    if (diagram) setNodes(buildNodes(diagram));
-    window.requestAnimationFrame(fit);
-  }, [diagram, setNodes, fit]);
+    if (diagram) {
+      setNodes((prev) => {
+        const size = new Map(prev.map((n) => [n.id, n.measured]));
+        return buildNodes(diagram).map((n) => ({ ...n, measured: size.get(n.id) }));
+      });
+    }
+    pendingFit.current = true;
+  }, [diagram, setNodes]);
+
+  // A zoom button that actually changes the zoom counts as the user moving the view.
+  const zoomBy = useCallback((dir) => {
+    const rf = flowRef.current;
+    if (!rf) return;
+    const before = rf.getZoom();
+    if (dir > 0) rf.zoomIn(); else rf.zoomOut();
+    if (rf.getZoom() !== before) tracker.userMoved();
+  }, [tracker]);
+
+  const fitClick = useCallback(() => { pendingFit.current = false; fit(); }, [fit]);
 
   if (error) return <div className="flow-panel__msg">{error}</div>;
   if (!diagram) return <div className="flow-panel__msg">Loading diagram…</div>;
@@ -215,23 +294,22 @@ export default function FlowDiagram({ name }) {
           </select>
         </label>
         <span className="flow-panel__zoom">
-          <button type="button" className="btn" aria-label="Zoom in" onClick={() => flowRef.current?.zoomIn()}>+</button>
-          <button type="button" className="btn" aria-label="Zoom out" onClick={() => flowRef.current?.zoomOut()}>-</button>
-          <button type="button" className="btn" aria-label="Fit the diagram" onClick={fit}>Fit</button>
+          <button type="button" className="btn" aria-label="Zoom in" onClick={() => zoomBy(1)}>+</button>
+          <button type="button" className="btn" aria-label="Zoom out" onClick={() => zoomBy(-1)}>-</button>
+          <button type="button" className="btn" aria-label="Fit the diagram" onClick={fitClick}>Fit</button>
         </span>
         <span className="flow-panel__count">{step >= 0 ? `Step ${step + 1} of ${stepCount}` : `${stepCount} steps`}</span>
       </div>
-      <div className="flow-canvas">
+      <div className="flow-canvas" ref={canvasRef}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
           edgeTypes={EDGE_TYPES}
           onNodesChange={onNodesChange}
-          onInit={(rf) => { flowRef.current = rf; }}
-          fitView
-          fitViewOptions={{ padding: 0.18 }}
-          minZoom={0.2}
-          maxZoom={1.5}
+          onInit={(rf) => { flowRef.current = rf; setReady(true); }}
+          onMoveStart={(event) => { if (event) tracker.userMoved(); }}
+          minZoom={MIN_ZOOM}
+          maxZoom={MAX_ZOOM}
           nodesConnectable={false}
           deleteKeyCode={null}
           proOptions={{ hideAttribution: true }}
@@ -240,6 +318,7 @@ export default function FlowDiagram({ name }) {
           <LabelLayer labels={labels} routes={routes} rects={rects} lit={lit} onModes={onModes} />
         </ReactFlow>
       </div>
+      {clipped && <p className="flow-panel__hint">This panel is narrower than the diagram at a readable size. Drag the diagram to pan, or press Fit. Simulate pans to each step.</p>}
       {legend.length > 0 && (
         <ol className="flow-legend" aria-label="Arrow labels">
           {legend.map((i) => (
