@@ -156,11 +156,11 @@ export default function App() {
     // so refresh the state and list the tools here.
     if (data.open) {
       const next = await loadState();
-      if (next?.oauth?.authenticated) await loadTools();
+      if (next?.oauth?.authenticated) await loadCatalog(next.gatewayMode);
       return;
     }
     window.location.href = data.authUrl;
-  }, [doorUrlInput, state, loadState, loadTools]);
+  }, [doorUrlInput, state, loadState, loadCatalog]);
 
   const signOut = useCallback(async () => {
     await api.post('/api/gateway/auth/logout');
