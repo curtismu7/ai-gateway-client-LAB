@@ -22,6 +22,7 @@ const doorStore = require('./doorStore');
 const mode = require('./mode');
 const netguard = require('./netguard');
 const mockGateway = require('./mockGateway');
+const mockSamples = require('./mockSamples');
 const diagrams = require('./diagrams');
 
 const { guardedFetch } = netguard;
@@ -652,43 +653,42 @@ async function callMcp(sess, method, params = {}) {
 // fresh nextCursor) would hang the request indefinitely otherwise.
 const MAX_MCP_PAGES = 100;
 
-async function listAllMcpPages(sess, method, resultKey) {
+/**
+ * Walks every page of a list method. Returns the items, how many pages it took, and the
+ * entries the gateway reported as hidden by policy (_meta.<deniedKey>), if a deniedKey is given.
+ */
+async function listPagesDetailed(sess, method, resultKey, deniedKey) {
   const items = [];
+  const hiddenByKey = new Map();
   const seenCursors = new Set();
   let cursor;
   let pages = 0;
   do {
     const data = await callMcp(sess, method, cursor ? { cursor } : {});
-    items.push(...(data.result?.[resultKey] || []));
-    cursor = data.result?.nextCursor;
-    pages += 1;
-    if (cursor && (seenCursors.has(cursor) || pages >= MAX_MCP_PAGES)) break;
-    if (cursor) seenCursors.add(cursor);
-  } while (cursor);
-  return items;
-}
-
-async function discoverPolicyTools(sess) {
-  const permitted = [];
-  const filteredByName = new Map();
-  const seenCursors = new Set();
-  let cursor;
-  let pages = 0;
-  do {
-    const data = await callMcp(sess, 'tools/list', cursor ? { cursor } : {});
     const result = data.result || {};
-    permitted.push(...(result.tools || []));
-    for (const tool of result._meta?.deniedTools || []) {
-      if (tool?.name) filteredByName.set(tool.name, tool);
+    items.push(...(result[resultKey] || []));
+    if (deniedKey) {
+      for (const entry of result._meta?.[deniedKey] || []) {
+        const id = entry?.name || entry?.uri;
+        if (id) hiddenByKey.set(id, entry);
+      }
     }
     cursor = result.nextCursor;
     pages += 1;
     if (cursor && (seenCursors.has(cursor) || pages >= MAX_MCP_PAGES)) break;
     if (cursor) seenCursors.add(cursor);
   } while (cursor);
-  const filtered = [...filteredByName.values()];
+  return { items, pages, hidden: [...hiddenByKey.values()] };
+}
+
+async function listAllMcpPages(sess, method, resultKey) {
+  return (await listPagesDetailed(sess, method, resultKey)).items;
+}
+
+async function discoverPolicyTools(sess) {
+  const { items: permitted, pages, hidden: filtered } = await listPagesDetailed(sess, 'tools/list', 'tools', 'deniedTools');
   sess.tools = permitted;
-  sess.toolPolicy = { permitted, filtered, total: permitted.length + filtered.length };
+  sess.toolPolicy = { permitted, filtered, total: permitted.length + filtered.length, pages };
   return sess.toolPolicy;
 }
 
@@ -1094,6 +1094,7 @@ router.get('/state', (req, res) => {
       subscriptionActive: sess.subscription.active,
     },
     presets,
+    mockSample: mode.isMock() ? mockGateway.sampleId() : null,
   });
 });
 
@@ -1241,27 +1242,44 @@ router.post('/tools/call', express.json(), async (req, res) => {
   }
 });
 
+// What each list is called, which capability gates it, and where the gateway reports what it hid.
+const CATALOG_LISTS = [
+  { name: 'tools', capability: 'tools', method: 'tools/list', key: 'tools', denied: 'deniedTools' },
+  { name: 'resources', capability: 'resources', method: 'resources/list', key: 'resources', denied: 'deniedResources' },
+  { name: 'resourceTemplates', capability: 'resources', method: 'resources/templates/list', key: 'resourceTemplates' },
+  { name: 'prompts', capability: 'prompts', method: 'prompts/list', key: 'prompts', denied: 'deniedPrompts' },
+];
+const METHOD_NOT_FOUND = -32601;
+
 router.get('/catalog', async (req, res) => {
   const sess = getSession(req);
   try {
     if (!sess.oauth.accessToken) return res.status(401).json({ error: 'Not authenticated.' });
     await ensureMcpSessionInitialized(sess);
     const capabilities = sess.mcpSession.capabilities || {};
-    const catalog = { tools: sess.tools, prompts: [], resources: [], resourceTemplates: [] };
-    const requests = [];
-    if (capabilities.tools && catalog.tools.length === 0) {
-      requests.push(listAllMcpPages(sess, 'tools/list', 'tools').then((tools) => { catalog.tools = tools; sess.tools = tools; }));
+    const catalog = { tools: [], prompts: [], resources: [], resourceTemplates: [] };
+    // Per list: whether the server supports it, how many pages it took, what policy hid, and any error.
+    const lists = {};
+    await Promise.all(CATALOG_LISTS.map(async (spec) => {
+      if (!capabilities[spec.capability]) {
+        lists[spec.name] = { supported: false, pages: 0, count: 0, hidden: [] };
+        return;
+      }
+      try {
+        const out = await listPagesDetailed(sess, spec.method, spec.key, spec.denied);
+        catalog[spec.name] = out.items;
+        lists[spec.name] = { supported: true, pages: out.pages, count: out.items.length, hidden: out.hidden };
+      } catch (err) {
+        const unsupported = err.rpcError?.code === METHOD_NOT_FOUND;
+        lists[spec.name] = { supported: !unsupported, pages: 0, count: 0, hidden: [], ...(unsupported ? {} : { error: err.message }) };
+      }
+    }));
+    if (lists.tools.supported && !lists.tools.error) {
+      sess.tools = catalog.tools;
+      sess.toolPolicy = { permitted: catalog.tools, filtered: lists.tools.hidden, total: catalog.tools.length + lists.tools.hidden.length, pages: lists.tools.pages };
     }
-    if (capabilities.prompts) {
-      requests.push(listAllMcpPages(sess, 'prompts/list', 'prompts').then((prompts) => { catalog.prompts = prompts; }));
-    }
-    if (capabilities.resources) {
-      requests.push(listAllMcpPages(sess, 'resources/list', 'resources').then((resources) => { catalog.resources = resources; }));
-      requests.push(listAllMcpPages(sess, 'resources/templates/list', 'resourceTemplates').then((templates) => { catalog.resourceTemplates = templates; }));
-    }
-    const settled = await Promise.allSettled(requests);
-    const errors = settled.filter((result) => result.status === 'rejected').map((result) => result.reason.message);
-    res.json({ ...catalog, protocol: { era: sess.mcpSession.era, version: sess.mcpSession.protocolVersion, capabilities, serverInfo: sess.mcpSession.serverInfo, instructions: sess.mcpSession.instructions }, errors });
+    const errors = Object.entries(lists).filter(([, l]) => l.error).map(([name, l]) => `${name}: ${l.error}`);
+    res.json({ ...catalog, lists, protocol: { era: sess.mcpSession.era, version: sess.mcpSession.protocolVersion, capabilities, serverInfo: sess.mcpSession.serverInfo, instructions: sess.mcpSession.instructions }, errors });
   } catch (err) {
     emitEvent(sess, 'error', { scope: 'catalog', message: err.message });
     res.status(relayFailureStatus(err)).json({ error: err.message });
@@ -1278,7 +1296,7 @@ router.post('/request', express.json(), async (req, res) => {
     res.json(data);
   } catch (err) {
     emitEvent(sess, 'error', { scope: 'mcp_request', message: err.message });
-    res.status(relayFailureStatus(err)).json({ error: err.message });
+    res.status(relayFailureStatus(err)).json({ error: err.message, ...(err.rpcError ? { rpcError: err.rpcError } : {}) });
   }
 });
 
@@ -1492,6 +1510,28 @@ router.put('/mode', express.json(), (req, res) => {
 
 router.get('/netguard', (_req, res) => {
   res.set('Cache-Control', 'no-store').json(netguard.selfTest());
+});
+
+// Mock samples: which tools, resources and prompts the in-process gateway serves. Mock mode only.
+function mockOnly(res) {
+  res.status(409).json({ error: 'mock_only', message: 'Mock samples exist only in mock mode. Live mode shows what the real gateway serves.' });
+}
+
+router.get('/mock/sample', (_req, res) => {
+  if (!mode.isMock()) return mockOnly(res);
+  res.set('Cache-Control', 'no-store').json({ active: mockGateway.sampleId(), samples: mockSamples.ids().map((id) => mockSamples.describe(mockSamples.get(id))) });
+});
+
+router.put('/mock/sample', express.json(), (req, res) => {
+  if (!mode.isMock()) return mockOnly(res);
+  const id = req.body?.sample;
+  if (!mockGateway.setSample(id)) {
+    return res.status(400).json({ error: 'unknown_sample', message: `Unknown sample. Choose one of: ${mockSamples.ids().join(', ')}.` });
+  }
+  // The lists on screen belong to the old sample. Sign-in stays; the MCP session starts clean.
+  resetMcpState(session);
+  emitEvent(session, 'config', { sample: id });
+  res.json({ active: id, sample: mockSamples.describe(mockSamples.get(id)) });
 });
 
 router.get('/mock-idp/authorize', (req, res) => {

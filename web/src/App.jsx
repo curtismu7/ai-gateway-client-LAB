@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import InspectorShell from './components/shared/InspectorShell';
 import InspectorTabs from './components/shared/InspectorTabs';
-import InspectorListItem from './components/shared/InspectorListItem';
 import ModeToggle from './components/ModeToggle';
 import FlowDiagram from './components/FlowDiagram';
+import CatalogPanel, { CATALOG_TABS, itemId } from './components/CatalogPanel';
+import CatalogBar from './components/CatalogBar';
+import { HiddenNotice, PromptDetail, ResourceDetail, TemplateDetail, ToolDetails, ToolSchema } from './components/ItemDetail';
+import { fromDoorCounts, safeJson, summarise } from './lib/catalog';
 import { api } from './lib/api';
 
 const OUTPUT_TABS = [
@@ -48,7 +51,17 @@ export default function App() {
   const [probeResults, setProbeResults] = useState(null);
   const [modeConfirm, setModeConfirm] = useState(false);
 
-  const [selectedTool, setSelectedTool] = useState(null);
+  // What the server offers on the active door, loaded from /catalog.
+  const [catalog, setCatalog] = useState(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState(null);
+  const [tab, setTab] = useState('tools');
+  const [selected, setSelected] = useState(null);
+  // Mock samples (mock mode only) and what each door was last seen to serve (for the comparison).
+  const [mockSamples, setMockSamples] = useState(null);
+  const [sampleBusy, setSampleBusy] = useState(false);
+  const [doorSummaries, setDoorSummaries] = useState({});
+  const [hiddenSeen, setHiddenSeen] = useState({ tools: [], resources: [], prompts: [] });
   const [paramValues, setParamValues] = useState({});
   const [busy, setBusy] = useState(false);
   const [lastInvoke, setLastInvoke] = useState(null);
@@ -62,16 +75,39 @@ export default function App() {
     const { data } = await api.get('/api/gateway/state');
     setState(data);
     setDoorUrlInput(data?.config?.mcpUrl || '');
+    if (data?.mockSample) {
+      const samples = await api.get('/api/gateway/mock/sample');
+      setMockSamples(samples.ok ? samples.data.samples : null);
+    } else {
+      setMockSamples(null);
+    }
     return data;
   }, []);
 
-  const loadTools = useCallback(async () => {
-    const { data, ok } = await api.post('/api/gateway/tools/list');
+  const clearCatalog = useCallback(() => {
+    setCatalog(null);
+    setCatalogError(null);
+    setSelected(null);
+    setLastInvoke(null);
+  }, []);
+
+  // Loads tools, resources, templates and prompts for the door the caller says is active.
+  const loadCatalog = useCallback(async (door) => {
+    setCatalogLoading(true);
+    setCatalogError(null);
+    const { data, ok } = await api.get('/api/gateway/catalog');
+    setCatalogLoading(false);
     if (!ok) {
-      setBanner({ message: data?.error || 'Failed to list tools.' });
+      setCatalog(null);
+      setCatalogError(data?.error || 'Failed to load.');
       return;
     }
-    setState((prev) => (prev ? { ...prev, tools: data.tools, policy: data.policy } : prev));
+    setCatalog(data);
+    setDoorSummaries((prev) => ({ ...prev, [door]: summarise(data) }));
+    if (door === 'privilege') {
+      const names = (key) => (data.lists?.[key]?.hidden || []).map((h) => h.name || h.uri);
+      setHiddenSeen({ tools: names('tools'), resources: names('resources'), prompts: names('prompts') });
+    }
   }, []);
 
   useEffect(() => {
@@ -80,14 +116,14 @@ export default function App() {
       const data = await loadState();
       if (result?.auth === 'success') {
         setBanner(null);
-        if (data?.oauth?.authenticated) loadTools();
+        if (data?.oauth?.authenticated) loadCatalog(data.gatewayMode);
       } else if (result?.auth === 'error') {
         setBanner({ message: `Sign-in failed: ${result.reason || 'unknown error'}` });
       } else if (data?.oauth?.authenticated) {
-        loadTools();
+        loadCatalog(data.gatewayMode);
       }
     })();
-  }, [loadState, loadTools]);
+  }, [loadState, loadCatalog]);
 
   useEffect(() => {
     const es = new EventSource('/api/gateway/events');
@@ -106,10 +142,9 @@ export default function App() {
     const { data } = await api.post('/api/gateway/config', { gatewayMode: mode, mcpUrl: url });
     setState((prev) => ({ ...prev, gatewayMode: data.gatewayMode, config: data.config, gatewayConfigs: data.gatewayConfigs, oauth: { ...prev.oauth, authenticated: data.oauth.authenticated } }));
     setDoorUrlInput(data.config.mcpUrl || '');
-    setSelectedTool(null);
-    setLastInvoke(null);
-    if (data.oauth.authenticated) loadTools(); else setState((prev) => ({ ...prev, tools: [] }));
-  }, [loadTools]);
+    clearCatalog();
+    if (data.oauth.authenticated) loadCatalog(data.gatewayMode);
+  }, [loadCatalog, clearCatalog]);
 
   const signIn = useCallback(async () => {
     if (doorUrlInput !== state?.config?.mcpUrl) {
@@ -123,8 +158,46 @@ export default function App() {
   const signOut = useCallback(async () => {
     await api.post('/api/gateway/auth/logout');
     await loadState();
-    setState((prev) => ({ ...prev, tools: [] }));
-  }, [loadState]);
+    clearCatalog();
+  }, [loadState, clearCatalog]);
+
+  // The catalog item the user picked, and the tool the existing argument form is built from.
+  const selectedItem = useMemo(() => {
+    if (!selected || !catalog) return null;
+    const spec = CATALOG_TABS.find((t) => t.key === selected.kind);
+    const pool = selected.hidden ? (catalog.lists?.[spec.listKey]?.hidden || []) : (catalog[spec.listKey] || []);
+    return pool.find((item) => itemId(selected.kind, item) === selected.id) || null;
+  }, [selected, catalog]);
+  const selectedTool = selected?.kind === 'tools' && !selected.hidden ? selectedItem : null;
+
+  const selectItem = useCallback((next) => {
+    // On a phone the columns stack, so bring the detail into view.
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      setTimeout(() => document.querySelector('.inspector-shell-col-middle')?.scrollIntoView({ block: 'start' }), 0);
+    }
+    setSelected(next);
+    setParamValues({});
+    setLastInvoke(null);
+    setLastTiming(null);
+  }, []);
+
+  const recordResponse = useCallback((data, ok, ms) => {
+    setLastInvoke(data);
+    setLastTiming({ ms, error: !ok });
+    setOutputTab('response');
+  }, []);
+
+  const changeSample = useCallback(async (id) => {
+    setSampleBusy(true);
+    const { ok, data } = await api.put('/api/gateway/mock/sample', { sample: id });
+    setSampleBusy(false);
+    if (!ok) { setBanner({ message: data?.message || 'Could not switch sample.' }); return; }
+    clearCatalog();
+    setDoorSummaries({});
+    setHiddenSeen({ tools: [], resources: [], prompts: [] });
+    const fresh = await loadState();
+    if (fresh?.oauth?.authenticated) loadCatalog(fresh.gatewayMode);
+  }, [clearCatalog, loadState, loadCatalog]);
 
   const schemaProps = useMemo(() => selectedTool?.inputSchema?.properties || {}, [selectedTool]);
   const requiredParams = useMemo(() => new Set(selectedTool?.inputSchema?.required || []), [selectedTool]);
@@ -178,9 +251,11 @@ export default function App() {
     setModeConfirm(false);
     setEvents([]);
     setLastInvoke(null);
-    setSelectedTool(null);
+    clearCatalog();
+    setDoorSummaries({});
+    setHiddenSeen({ tools: [], resources: [], prompts: [] });
     await loadState();
-  }, [loadState]);
+  }, [loadState, clearCatalog]);
 
   const connectConsole = useCallback(async () => {
     const { data, ok } = await api.post('/api/gateway/console/connect', { authToken: consoleToken });
@@ -194,42 +269,97 @@ export default function App() {
     if (outputTab === 'log') return null;
     if (outputTab === 'response') return lastInvoke ?? null;
     if (outputTab === 'request') {
-      return selectedTool
-        ? { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: selectedTool.name, arguments: paramValues } }
-        : { jsonrpc: '2.0', id: 1, method: rawMethod, params: JSON.parse(rawParams || '{}') };
+      if (selectedTool) return { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: selectedTool.name, arguments: paramValues } };
+      if (selectedItem && !selected.hidden && selected.kind === 'resources') return { jsonrpc: '2.0', id: 1, method: 'resources/read', params: { uri: selectedItem.uri } };
+      if (selectedItem && !selected.hidden && selected.kind === 'prompts') return { jsonrpc: '2.0', id: 1, method: 'prompts/get', params: { name: selectedItem.name } };
+      let params = {};
+      try { params = JSON.parse(rawParams || '{}'); } catch { /* shown as empty until the JSON is valid */ }
+      return { jsonrpc: '2.0', id: 1, method: rawMethod, params };
     }
     return null;
-  }, [outputTab, lastInvoke, selectedTool, paramValues, rawMethod, rawParams]);
+  }, [outputTab, lastInvoke, selectedTool, selectedItem, selected, paramValues, rawMethod, rawParams]);
+
+  // Items the Privilege door hides, so the Direct door can mark them. In mock mode the sample says
+  // which they are; in live mode it is what a Privilege load reported earlier in this session.
+  const knownHidden = useMemo(() => {
+    const active = mockSamples?.find((smp) => smp.id === state?.mockSample);
+    const source = active ? active.hidden : hiddenSeen;
+    return {
+      tools: new Set(source?.tools || []),
+      resources: new Set(source?.resources || []),
+      prompts: new Set(source?.prompts || []),
+    };
+  }, [mockSamples, state, hiddenSeen]);
 
   if (!state) return <div style={{ padding: 20 }}>Loading…</div>;
 
   const isMock = state.mode?.current !== 'live';
   const doorLabel = state.gatewayMode === 'privilege' ? 'Privilege — straight at the Agent Privilege' : 'Direct — no Privilege in the path';
 
+  const gatewayMode = state.gatewayMode;
+  const doorName = gatewayMode === 'privilege' ? 'Privilege' : 'Direct';
+  const otherMode = gatewayMode === 'privilege' ? 'direct' : 'privilege';
+  const otherName = otherMode === 'privilege' ? 'Privilege' : 'Direct';
+  const summary = catalog ? summarise(catalog) : null;
+  let otherSummary = null;
+  const activeSample = mockSamples?.find((smp) => smp.id === state.mockSample);
+  if (activeSample) {
+    const hiddenAnywhere = activeSample.counts.privilege.hiddenTools + activeSample.counts.privilege.hiddenResources + activeSample.counts.privilege.hiddenPrompts > 0;
+    if (hiddenAnywhere) otherSummary = fromDoorCounts(activeSample.counts[otherMode]);
+  } else if (doorSummaries[otherMode] && summary && JSON.stringify(doorSummaries[otherMode]) !== JSON.stringify(summary)) {
+    otherSummary = doorSummaries[otherMode];
+  }
+  const directPreset = (state.presets || []).find((p) => p.mode === 'direct');
+
   const left = (
-    <div className="tool-tree">
-      {!state.oauth.authenticated && <div className="tool-tree__empty">Sign in to list tools.</div>}
-      {state.oauth.authenticated && (state.tools || []).length === 0 && <div className="tool-tree__empty">No tools (or none permitted by policy).</div>}
-      {(state.tools || []).map((tool) => (
-        <InspectorListItem
-          key={tool.name}
-          label={tool.name}
-          active={selectedTool?.name === tool.name}
-          onClick={() => { setSelectedTool(tool); setParamValues({}); setLastInvoke(null); }}
-        />
-      ))}
-      {state.policy?.filtered > 0 && (
-        <div className="tool-tree__policy">{state.policy.filtered} tool(s) filtered by gateway policy.</div>
-      )}
-    </div>
+    <CatalogPanel
+      tab={tab}
+      onTab={setTab}
+      catalog={catalog}
+      authed={state.oauth.authenticated}
+      loading={catalogLoading}
+      loadError={catalogError}
+      onRetry={() => loadCatalog(gatewayMode)}
+      selected={selected}
+      onSelect={selectItem}
+      knownHidden={knownHidden}
+    />
   );
 
-  const middle = (
-    <div className="tool-form">
-      {selectedTool ? (
-        <>
-          <h2>{selectedTool.name}</h2>
-          {selectedTool.description && <p className="tool-form__desc">{selectedTool.description}</p>}
+  const rawForm = (
+    <>
+      <h2>Raw MCP request</h2>
+      <p className="tool-form__desc">For anything that isn't tools/call, such as completion or tasks. Pick an item on the left to use it directly.</p>
+      <label className="tool-form__field">
+        <span>method</span>
+        <input value={rawMethod} onChange={(e) => setRawMethod(e.target.value)} placeholder="resources/list" />
+      </label>
+      <label className="tool-form__field">
+        <span>params (JSON)</span>
+        <textarea rows={5} value={rawParams} onChange={(e) => setRawParams(e.target.value)} />
+      </label>
+      <button type="button" className="btn btn--primary" onClick={sendRaw} disabled={busy || !state.oauth.authenticated}>{busy ? 'Sending…' : 'Send'}</button>
+    </>
+  );
+
+  let detail = null;
+  if (selected && selectedItem) {
+    const kindWord = { tools: 'tool', resources: 'resource', templates: 'template', prompts: 'prompt' }[selected.kind];
+    if (selected.hidden) {
+      detail = (
+        <HiddenNotice
+          key={`hidden:${selected.id}`}
+          kind={kindWord}
+          item={selectedItem}
+          canUseDirect={gatewayMode === 'privilege' && Boolean(directPreset)}
+          onUseDirect={() => switchMode('direct', directPreset.url)}
+        />
+      );
+    } else if (selected.kind === 'tools') {
+      detail = (
+        <div key={`tool:${selected.id}`} className="item-detail">
+          <h2 className="item-detail__title">{selectedItem.name}</h2>
+          <ToolDetails tool={selectedItem} hiddenOnPrivilege={knownHidden.tools.has(selectedItem.name)} />
           {Object.entries(schemaProps).map(([key, schema]) => (
             <label key={key} className="tool-form__field">
               <span>{key}{requiredParams.has(key) ? ' *' : ''}{schema?.type ? ` (${schema.type})` : ''}</span>
@@ -237,22 +367,26 @@ export default function App() {
             </label>
           ))}
           <button type="button" className="btn btn--primary" onClick={handleExecute} disabled={busy}>{busy ? 'Running…' : 'Execute'}</button>
-        </>
-      ) : (
+          <ToolSchema tool={selectedItem} />
+        </div>
+      );
+    } else if (selected.kind === 'resources') {
+      detail = <ResourceDetail key={`resource:${selected.id}`} resource={selectedItem} onResponse={recordResponse} />;
+    } else if (selected.kind === 'templates') {
+      detail = <TemplateDetail key={`template:${selected.id}`} template={selectedItem} onResponse={recordResponse} />;
+    } else if (selected.kind === 'prompts') {
+      detail = <PromptDetail key={`prompt:${selected.id}`} prompt={selectedItem} onResponse={recordResponse} />;
+    }
+  }
+
+  const middle = (
+    <div className="tool-form">
+      {detail ? (
         <>
-          <h2>Raw MCP request</h2>
-          <p className="tool-form__desc">For anything that isn't tools/call — resources, prompts, completion, tasks.</p>
-          <label className="tool-form__field">
-            <span>method</span>
-            <input value={rawMethod} onChange={(e) => setRawMethod(e.target.value)} placeholder="resources/list" />
-          </label>
-          <label className="tool-form__field">
-            <span>params (JSON)</span>
-            <textarea rows={5} value={rawParams} onChange={(e) => setRawParams(e.target.value)} />
-          </label>
-          <button type="button" className="btn btn--primary" onClick={sendRaw} disabled={busy || !state.oauth.authenticated}>{busy ? 'Sending…' : 'Send'}</button>
+          <button type="button" className="item-detail__close" onClick={() => setSelected(null)}>Back to raw request</button>
+          {detail}
         </>
-      )}
+      ) : rawForm}
     </div>
   );
 
@@ -267,12 +401,12 @@ export default function App() {
           {events.slice().reverse().map((ev, i) => (
             <div key={i} className={`relay-log__row relay-log__row--${ev.type}`}>
               <span className="relay-log__type">{ev.type}{ev.phase ? `:${ev.phase}` : ''}</span>
-              <pre>{JSON.stringify(ev, null, 2)}</pre>
+              <pre>{safeJson(ev)}</pre>
             </div>
           ))}
         </div>
       ) : (
-        <pre className="tool-output__json">{outputValue === null || outputValue === undefined ? '—' : JSON.stringify(outputValue, null, 2)}</pre>
+        <pre className="tool-output__json">{outputValue === null || outputValue === undefined ? '—' : safeJson(outputValue)}</pre>
       )}
       {lastTiming && (outputTab === 'response' || outputTab === 'request') && (
         <div className={lastTiming.error ? 'tool-output__timing tool-output__timing--error' : 'tool-output__timing'}>
@@ -327,10 +461,20 @@ export default function App() {
             ) : (
               <button type="button" className="btn btn--primary" onClick={signIn}>Sign in</button>
             )}
-            <button type="button" className="btn" onClick={loadTools} disabled={!state.oauth.authenticated}>Refresh tools</button>
+            <button type="button" className="btn" onClick={() => loadCatalog(gatewayMode)} disabled={!state.oauth.authenticated || catalogLoading}>Refresh</button>
             <button type="button" className="btn" onClick={runProbe} disabled={!state.oauth.authenticated}>Probe other doors</button>
             {!isMock && <button type="button" className="btn" onClick={() => setShowConsoleForm((v) => !v)}>Connect Privilege console</button>}
           </div>
+          <CatalogBar
+            mockSamples={mockSamples}
+            activeSample={state.mockSample}
+            onSample={changeSample}
+            busy={sampleBusy}
+            doorLabel={doorName}
+            summary={summary}
+            otherLabel={otherName}
+            otherSummary={otherSummary}
+          />
           {showConsoleForm && (
             <div className="add-server-form">
               <input className="wide" type="password" placeholder="Paste the console's auth_token cookie value" value={consoleToken} onChange={(e) => setConsoleToken(e.target.value)} />

@@ -7,6 +7,7 @@
 // with a key generated at start-up and are not valid anywhere else.
 
 const crypto = require('crypto');
+const samples = require('./mockSamples');
 
 const MOCK_GATEWAY_ORIGIN = 'https://mock-gateway.invalid';
 const MOCK_IDP_ORIGIN = 'https://mock-idp.invalid';
@@ -19,52 +20,23 @@ const DOORS = {
 };
 const PRM_PATH = '/.well-known/oauth-protected-resource';
 
-const TOOLS = [
-  {
-    name: 'search_documents',
-    description: 'Full-text search over one index. Returns the top hits.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        index: { type: 'string', description: 'Index name, e.g. support-articles' },
-        query: { type: 'string', description: 'Search text' },
-        size: { type: 'integer', description: 'Maximum hits, 1 to 20' },
-      },
-      required: ['index', 'query'],
-    },
-  },
-  {
-    name: 'get_document',
-    description: 'Fetch one document by id.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        index: { type: 'string', description: 'Index name' },
-        id: { type: 'string', description: 'Document id, e.g. KB-101' },
-      },
-      required: ['index', 'id'],
-    },
-  },
-  { name: 'list_indices', description: 'List indices and their document counts.', inputSchema: { type: 'object', properties: {} } },
-  { name: 'cluster_health', description: 'Cluster status: green, yellow or red.', inputSchema: { type: 'object', properties: {} } },
-];
+// The sample the mock serves: tools, resources, templates and prompts. Server-side state,
+// like the mode. Reset (and a mode change) puts it back to the default.
+let currentSample = samples.DEFAULT_SAMPLE;
 
-const DENIED_TOOLS = [
-  { name: 'delete_index', description: 'Delete an index and all its documents.', deniedReason: 'Policy: index deletion needs the opensearch.admin grant.' },
-  { name: 'update_mapping', description: 'Change the field mapping of an index.', deniedReason: 'Policy: schema changes need the opensearch.admin grant.' },
-];
+function sampleId() {
+  return currentSample;
+}
 
-const INDICES = {
-  'support-articles': [
-    { id: 'KB-101', title: 'Reset a password', body: 'Use the self-service reset link. The link expires after 15 minutes.' },
-    { id: 'KB-204', title: 'Enable two-step sign-in', body: 'Add an authenticator app from the security page.' },
-    { id: 'KB-310', title: 'Export your data', body: 'Exports are queued and delivered by email within an hour.' },
-  ],
-  'orders-2026': [
-    { id: 'ORD-1001', title: 'Order 1001', body: 'Shipped. Carrier tracking is available on the order page.' },
-    { id: 'ORD-1002', title: 'Order 1002', body: 'Awaiting payment confirmation.' },
-  ],
-};
+/** Returns false for an unknown sample id. */
+function setSample(id) {
+  if (!samples.get(id)) return false;
+  currentSample = id;
+  return true;
+}
+
+const activeSample = () => samples.get(currentSample);
+
 
 // Mock signing key, generated per process. Not a real credential.
 const SIGNING_KEY = crypto.randomBytes(32);
@@ -76,6 +48,7 @@ function freshIdp() {
 
 function reset() {
   idp = freshIdp();
+  currentSample = samples.DEFAULT_SAMPLE;
 }
 
 const b64u = (input) => Buffer.from(input).toString('base64url');
@@ -117,7 +90,7 @@ const ACCESS_TTL_S = 900;
 function issueTokens(clientId, scope) {
   const now = Math.floor(Date.now() / 1000);
   const access = sign({
-    iss: MOCK_IDP_ORIGIN, sub: 'mock-user', client_id: clientId, scope, aud: 'mock-gateway', iat: now, exp: now + ACCESS_TTL_S, mock: true,
+    iss: MOCK_IDP_ORIGIN, sub: 'mock-user', client_id: clientId, scope, aud: 'mock-gateway', iat: now, exp: now + ACCESS_TTL_S, mock: true, grants: samples.MOCK_USER_GRANTS,
   });
   const refresh = crypto.randomBytes(24).toString('base64url');
   idp.refresh.set(refresh, { clientId, scope });
@@ -230,74 +203,168 @@ function challenge(doorPath) {
   return { 'WWW-Authenticate': `Bearer resource_metadata="${resourceMeta}"` };
 }
 
-function toolResult(name, args) {
+const searchResult = (args) => {
+  const docs = samples.INDICES[args.index];
+  if (!docs) return { error: `Index not found: ${args.index}` };
   const q = String(args.query || '').toLowerCase();
-  if (name === 'search_documents') {
-    const docs = INDICES[args.index];
-    if (!docs) return { error: `Index not found: ${args.index}` };
-    const size = Math.min(Math.max(parseInt(args.size, 10) || 3, 1), 20);
-    const hits = docs
-      .filter((d) => !q || `${d.title} ${d.body}`.toLowerCase().includes(q))
-      .slice(0, size)
-      .map((d, i) => ({ _id: d.id, _score: Number((1 - i * 0.1).toFixed(2)), _source: { title: d.title, body: d.body } }));
-    return { index: args.index, total: hits.length, hits, simulated: true };
-  }
-  if (name === 'get_document') {
-    const doc = (INDICES[args.index] || []).find((d) => d.id === args.id);
+  const size = Math.min(Math.max(parseInt(args.size, 10) || 3, 1), 20);
+  const hits = docs
+    .filter((d) => !q || `${d.title} ${d.body}`.toLowerCase().includes(q))
+    .slice(0, size)
+    .map((d, i) => ({ _id: d.id, _score: Number((1 - i * 0.1).toFixed(2)), _source: { title: d.title, body: d.body } }));
+  return { index: args.index, total: hits.length, hits, simulated: true };
+};
+
+const UNIT_FACTORS = { 'km>mi': 0.621371, 'mi>km': 1.609344, 'kg>lb': 2.204623, 'lb>kg': 0.453592, 'c>f': null, 'f>c': null };
+
+// Tools with a hand-made result. Every other tool answers with a plain simulated echo.
+const TOOL_RESULTS = {
+  search_documents: searchResult,
+  get_document: (args) => {
+    const doc = (samples.INDICES[args.index] || []).find((d) => d.id === args.id);
     return doc ? { index: args.index, _id: doc.id, _source: { title: doc.title, body: doc.body }, simulated: true } : { error: `Document not found: ${args.id}` };
-  }
-  if (name === 'list_indices') {
-    return { indices: Object.entries(INDICES).map(([index, docs]) => ({ index, docs: docs.length })), simulated: true };
-  }
-  if (name === 'cluster_health') {
-    return { status: 'green', number_of_nodes: 1, simulated: true };
-  }
-  return null;
+  },
+  list_indices: () => ({ indices: Object.entries(samples.INDICES).map(([index, docs]) => ({ index, docs: docs.length })), simulated: true }),
+  cluster_health: () => ({ status: 'green', number_of_nodes: 1, simulated: true }),
+  get_time: (args) => ({ timezone: args.timezone || 'UTC', iso: '2026-10-31T12:00:00Z', simulated: true }),
+  convert_units: (args) => {
+    const key = `${String(args.from).toLowerCase()}>${String(args.to).toLowerCase()}`;
+    if (key === 'c>f') return { value: Number((Number(args.value) * 9 / 5 + 32).toFixed(2)), unit: args.to, simulated: true };
+    if (key === 'f>c') return { value: Number(((Number(args.value) - 32) * 5 / 9).toFixed(2)), unit: args.to, simulated: true };
+    return UNIT_FACTORS[key] ? { value: Number((Number(args.value) * UNIT_FACTORS[key]).toFixed(3)), unit: args.to, simulated: true } : { error: `Cannot convert ${args.from} to ${args.to}` };
+  },
+  get_balance: (args) => ({ account: args.account, currency: 'EUR', balance: 1234.56, simulated: true }),
+  list_accounts: () => ({ accounts: [{ id: 'ACC-100', type: 'current', currency: 'EUR' }, { id: 'ACC-200', type: 'savings', currency: 'EUR' }], simulated: true }),
+  search_docs: (args) => ({ query: args.query, pages: ['getting-started', 'authentication'], simulated: true }),
+  get_page: (args) => (args.slug === 'getting-started' ? { slug: args.slug, markdown: '# Getting started\n\nInstall, sign in, make a first request.', simulated: true } : { error: `Page not found: ${args.slug}` }),
+  list_spaces: () => ({ spaces: ['public', 'internal-example'], simulated: true }),
+};
+
+function toolResult(tool, args) {
+  const handler = TOOL_RESULTS[tool.name];
+  if (handler) return handler(args);
+  return {
+    tool: tool.name,
+    status: 'ok',
+    arguments: args,
+    effect: tool.annotations?.readOnlyHint ? 'none (read-only)' : 'simulated change, nothing was stored',
+    simulated: true,
+  };
 }
 
 function rpcResult(id, result) {
   return { jsonrpc: '2.0', id, result };
 }
 
-function rpcError(id, code, message) {
-  return { jsonrpc: '2.0', id, error: { code, message } };
+function rpcError(id, code, message, data) {
+  const error = { code, message };
+  if (data !== undefined) error.data = data;
+  return { jsonrpc: '2.0', id, error };
 }
 
-function mcpHandle(url, doorPath, door, rpc) {
+const deniedEntry = (item, fields) => Object.fromEntries([...fields.map((f) => [f, item[f]]), ['deniedReason', item.deniedReason || 'Filtered by gateway policy.']]);
+
+function denyResponse(what) {
+  return { status: 403, body: { error: `denied by gateway policy (mock): ${what}` } };
+}
+
+/** A paged list result for one kind (tools, resources, ...). The policy door adds what it hid to _meta on the first page. */
+function listResult(id, sample, door, grants, spec, params) {
+  const all = samples.visible(spec.items, door, grants);
+  const paged = samples.page(all, spec.kind, params.cursor, sample.pageSize);
+  if (paged.error) return rpcError(id, -32602, paged.error);
+  const result = { [spec.key]: paged.items.map(spec.shape) };
+  if (paged.nextCursor) result.nextCursor = paged.nextCursor;
+  const hiddenItems = samples.hidden(spec.items, door, grants);
+  if (spec.meta && hiddenItems.length && !params.cursor) {
+    result._meta = { [spec.meta]: hiddenItems.map((item) => deniedEntry(item, spec.deniedFields)) };
+  }
+  return rpcResult(id, result);
+}
+
+function mcpHandle(url, doorPath, door, rpc, claims = {}) {
   const { id, method, params = {} } = rpc;
+  const sample = activeSample();
+  const grants = Array.isArray(claims.grants) ? claims.grants : samples.MOCK_USER_GRANTS;
   if (method === 'server/discover') return rpcError(id, -32601, 'Method not found (mock server speaks the 2024-11-05 handshake only).');
   if (method === 'initialize') {
     return rpcResult(id, {
       protocolVersion: '2024-11-05',
-      capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: `mock-opensearch-gateway${door.policy ? '' : '-direct'}`, version: '1.0.0' },
+      capabilities: sample.capabilities,
+      serverInfo: { name: `mock-${sample.id}-gateway${door.policy ? '' : '-direct'}`, version: '1.0.0' },
       instructions: SIMULATED,
     });
   }
   if (method === 'tools/list') {
-    const result = { tools: TOOLS };
-    if (door.policy) result._meta = { deniedTools: DENIED_TOOLS };
-    return rpcResult(id, result);
+    return listResult(id, sample, door, grants, {
+      kind: 'tools', key: 'tools', items: sample.tools, shape: samples.publicTool, meta: 'deniedTools', deniedFields: ['name', 'title', 'description'],
+    }, params);
   }
   if (method === 'tools/call') {
     const name = params.name;
-    const tool = TOOLS.find((t) => t.name === name);
-    if (!tool) {
-      if (door.policy && DENIED_TOOLS.some((t) => t.name === name)) return { status: 403, body: { error: `denied by gateway policy (mock): ${name}` } };
-      return rpcError(id, -32602, `Unknown tool: ${name}`);
-    }
-    const missing = (tool.inputSchema.required || []).filter((k) => params.arguments?.[k] === undefined || params.arguments?.[k] === '');
+    const tool = sample.tools.find((t) => t.name === name);
+    if (!tool) return rpcError(id, -32602, `Unknown tool: ${name}`);
+    if (door.policy && samples.hidden([tool], door, grants).length) return denyResponse(name);
+    const required = tool.inputSchema.required || [];
+    const missing = required.filter((k) => params.arguments?.[k] === undefined || params.arguments?.[k] === '');
     if (missing.length) return rpcError(id, -32602, `Missing required argument(s): ${missing.join(', ')}`);
-    const output = toolResult(name, params.arguments || {});
+    const output = toolResult(tool, params.arguments || {});
     return rpcResult(id, {
       content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
       isError: Boolean(output && output.error),
     });
   }
-  if (method === 'prompts/list') return rpcResult(id, { prompts: [] });
-  if (method === 'resources/list') return rpcResult(id, { resources: [] });
+  if (method.startsWith('resources/')) {
+    if (!sample.capabilities.resources) return rpcError(id, -32601, `Method not found: ${method} (this server does not support resources).`);
+    if (method === 'resources/list') {
+      return listResult(id, sample, door, grants, {
+        kind: 'resources', key: 'resources', items: sample.resources, shape: samples.publicResource, meta: 'deniedResources', deniedFields: ['uri', 'name', 'title', 'description'],
+      }, params);
+    }
+    if (method === 'resources/templates/list') {
+      return listResult(id, sample, door, grants, {
+        kind: 'templates', key: 'resourceTemplates', items: sample.templates, shape: samples.publicTemplate,
+      }, params);
+    }
+    if (method === 'resources/read') {
+      const uri = params.uri;
+      if (typeof uri !== 'string' || !uri) return rpcError(id, -32602, 'uri is required');
+      const known = sample.resources.find((r) => r.uri === uri);
+      if (known) {
+        if (door.policy && samples.hidden([known], door, grants).length) return denyResponse(uri);
+        return rpcResult(id, { contents: [{ uri, mimeType: known.mimeType, text: known.text }] });
+      }
+      for (const template of sample.templates) {
+        const vars = samples.matchTemplate(template.uriTemplate, uri);
+        const text = vars && template.render(vars);
+        if (text) return rpcResult(id, { contents: [{ uri, mimeType: template.mimeType, text }] });
+      }
+      return rpcError(id, -32002, 'Resource not found', { uri });
+    }
+    return rpcError(id, -32601, `Method not found: ${method} (${doorPath}).`);
+  }
+  if (method.startsWith('prompts/')) {
+    if (!sample.capabilities.prompts) return rpcError(id, -32601, `Method not found: ${method} (this server does not support prompts).`);
+    if (method === 'prompts/list') {
+      return listResult(id, sample, door, grants, {
+        kind: 'prompts', key: 'prompts', items: sample.prompts, shape: samples.publicPrompt, meta: 'deniedPrompts', deniedFields: ['name', 'title', 'description'],
+      }, params);
+    }
+    if (method === 'prompts/get') {
+      const prompt = (sample.prompts || []).find((p) => p.name === params.name);
+      if (!prompt) return rpcError(id, -32602, `Unknown prompt: ${params.name}`);
+      if (door.policy && samples.hidden([prompt], door, grants).length) return denyResponse(prompt.name);
+      const args = params.arguments || {};
+      const missing = prompt.arguments.filter((a) => a.required && (args[a.name] === undefined || args[a.name] === '')).map((a) => a.name);
+      if (missing.length) return rpcError(id, -32602, `Missing required argument(s): ${missing.join(', ')}`);
+      return rpcResult(id, { description: prompt.description, messages: [{ role: 'user', content: { type: 'text', text: prompt.render(args) } }] });
+    }
+    return rpcError(id, -32601, `Method not found: ${method} (${doorPath}).`);
+  }
   return rpcError(id, -32601, `Method not found: ${method} (${doorPath}).`);
 }
+
+
 
 async function mcpRoute(url, req, doorPath, door) {
   const auth = req.headers.get('authorization') || '';
@@ -319,7 +386,7 @@ async function mcpRoute(url, req, doorPath, door) {
   try { rpc = JSON.parse(await req.text()); } catch { return json(rpcError(null, -32700, 'Parse error'), 400); }
   if (rpc.id === undefined) return new Response(null, { status: 202 });
   const sessionHeader = { 'mcp-session-id': `mock-${crypto.createHash('sha1').update(token).digest('hex').slice(0, 16)}` };
-  const out = mcpHandle(url, doorPath, door, rpc);
+  const out = mcpHandle(url, doorPath, door, rpc, claims);
   if (out.status === 403) return json(out.body, 403, sessionHeader);
   return json(out, 200, sessionHeader);
 }
@@ -358,6 +425,7 @@ module.exports = {
   authorize,
   reset,
   verify,
-  TOOLS,
-  DENIED_TOOLS,
+  sampleId,
+  setSample,
+  mcpHandle,
 };
