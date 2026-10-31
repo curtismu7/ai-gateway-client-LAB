@@ -15,9 +15,25 @@ require('dotenv').config({
 const path = require('path');
 const express = require('express');
 const relay = require('./lib/relay');
+const mode = require('./lib/mode');
 
 const PORT = parseInt(process.env.PORT || '6880', 10);
+// Loopback by default. The Docker image sets HOST=0.0.0.0 inside the container, and compose publishes 127.0.0.1 only.
+const HOST = process.env.HOST || '127.0.0.1';
 const app = express();
+
+// Host check (DNS-rebinding guard) and same-origin writes.
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
+app.use((req, res, next) => {
+  const hostname = String(req.headers.host || '').replace(/:\d+$/, '');
+  if (!LOOPBACK_HOSTNAMES.has(hostname)) return res.status(421).json({ error: 'bad_host' });
+  if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin) {
+    let origin = null;
+    try { origin = new URL(req.headers.origin).host; } catch { /* keep null */ }
+    if (origin !== req.headers.host) return res.status(403).json({ error: 'cross_origin_write' });
+  }
+  next();
+});
 
 app.use('/api/gateway', relay);
 
@@ -26,8 +42,8 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 // Health contract (demo-shelf docs/health-contract.md) and reset for doctor and the shelf.
 const DEMO = { id: 'ai-gateway-client', name: 'Agent Privilege Client LAB', version: require('../package.json').version || '0.1.0' };
 app.get('/api/health', (_req, res) => {
-  const state = process.env.PINGONE_ENVIRONMENT_ID ? 'ready' : 'needs-setup';
-  res.set('Cache-Control', 'no-store').json({ schema: 'demo-health/1', at: new Date().toISOString(), state, runtime: 'live', demo: DEMO });
+  const state = mode.isMock() || process.env.PINGONE_ENVIRONMENT_ID ? 'ready' : 'needs-setup';
+  res.set('Cache-Control', 'no-store').json({ schema: 'demo-health/1', at: new Date().toISOString(), state, runtime: mode.currentMode(), demo: DEMO });
 });
 app.post('/api/reset', (_req, res) => {
   relay.resetAll();
@@ -43,6 +59,6 @@ app.get(/^(?!\/api\/).*/, (_req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`[ai-gateway-client] listening on http://127.0.0.1:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`[ai-gateway-client] mode ${mode.currentMode()}, listening on http://127.0.0.1:${PORT}`);
 });

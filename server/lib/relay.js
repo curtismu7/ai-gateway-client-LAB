@@ -19,6 +19,12 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const doorStore = require('./doorStore');
+const mode = require('./mode');
+const netguard = require('./netguard');
+const mockGateway = require('./mockGateway');
+const diagrams = require('./diagrams');
+
+const { guardedFetch } = netguard;
 
 const router = express.Router();
 
@@ -26,32 +32,35 @@ const router = express.Router();
 // Config — all overridable by env; defaults point at the public Ping AI Demo
 // Privilege gateway so this works out of the box with zero setup.
 // ---------------------------------------------------------------------------
-const PRIVILEGE_GATEWAY_HOST = process.env.PRIVILEGE_GATEWAY_HOST || 'https://mcp-gateway.example.invalid';
-const PRIVILEGE_APP = () => process.env.PRIVILEGE_GATEWAY_APP || 'opensearch';
+// In mock mode every gateway URL is the in-process mock (netguard refuses anything else),
+// so the live host and app overrides are ignored there.
+const LIVE_PRIVILEGE_HOST = 'https://mcp-gateway.example.invalid';
+const privilegeHost = () => (mode.isMock() ? mockGateway.MOCK_GATEWAY_ORIGIN : (process.env.PRIVILEGE_GATEWAY_HOST || LIVE_PRIVILEGE_HOST));
+const PRIVILEGE_APP = () => (mode.isMock() ? 'opensearch' : (process.env.PRIVILEGE_GATEWAY_APP || 'opensearch'));
 const PRIVILEGE_APP_OPENSEARCH = () => process.env.PRIVILEGE_GATEWAY_APP_OPENSEARCH || 'opensearch';
 const PRIVILEGE_APP_BRAVE = () => process.env.PRIVILEGE_GATEWAY_APP_BRAVE || 'brave';
 // The hostile MCP server behind Privilege (standalone/hostile-mcp-server), for
 // the red-team demo: poisoned tool metadata + a create_transfer the policy denies.
 const PRIVILEGE_APP_LIBRE = () => process.env.PRIVILEGE_GATEWAY_APP_LIBRE || 'libre';
 
-const DEFAULT_PRIVILEGE_MCP_URL = () => `${PRIVILEGE_GATEWAY_HOST}/${PRIVILEGE_APP()}/mcp`;
-const DEFAULT_PRIVILEGE_OPENSEARCH_MCP_URL = () => `${PRIVILEGE_GATEWAY_HOST}/${PRIVILEGE_APP_OPENSEARCH()}/mcp`;
-const DEFAULT_PRIVILEGE_BRAVE_MCP_URL = () => `${PRIVILEGE_GATEWAY_HOST}/${PRIVILEGE_APP_BRAVE()}/mcp`;
-const DEFAULT_PRIVILEGE_LIBRE_MCP_URL = () => `${PRIVILEGE_GATEWAY_HOST}/${PRIVILEGE_APP_LIBRE()}/mcp`;
+const DEFAULT_PRIVILEGE_MCP_URL = () => `${privilegeHost()}/${PRIVILEGE_APP()}/mcp`;
+const DEFAULT_PRIVILEGE_OPENSEARCH_MCP_URL = () => `${privilegeHost()}/${PRIVILEGE_APP_OPENSEARCH()}/mcp`;
+const DEFAULT_PRIVILEGE_BRAVE_MCP_URL = () => `${privilegeHost()}/${PRIVILEGE_APP_BRAVE()}/mcp`;
+const DEFAULT_PRIVILEGE_LIBRE_MCP_URL = () => `${privilegeHost()}/${PRIVILEGE_APP_LIBRE()}/mcp`;
 // No Privilege in the path. Defaults to the AI Demo's own façade
 // (gateway.example.invalid) — verified live: it's a self-advertising OAuth
 // broker with open Dynamic Client Registration (RFC 7591) and no shared
 // secret, so this resolves the same way Privilege mode's default does, with
 // zero setup. Override to point at any MCP server you run yourself.
-const DEFAULT_DIRECT_MCP_URL = () => process.env.DIRECT_MCP_URL || 'https://gateway.example.invalid/mcp-facade/opensearch/mcp';
-const DEFAULT_DIRECT_BRAVE_MCP_URL = () => process.env.DIRECT_BRAVE_MCP_URL || 'https://gateway.example.invalid/mcp-facade/brave/mcp';
+const DEFAULT_DIRECT_MCP_URL = () => (mode.isMock() ? `${mockGateway.MOCK_GATEWAY_ORIGIN}/direct/opensearch/mcp` : (process.env.DIRECT_MCP_URL || 'https://gateway.example.invalid/mcp-facade/opensearch/mcp'));
+const DEFAULT_DIRECT_BRAVE_MCP_URL = () => (mode.isMock() ? null : (process.env.DIRECT_BRAVE_MCP_URL || 'https://gateway.example.invalid/mcp-facade/brave/mcp'));
 // The raw hostile server, no Privilege in the path — the "Direct" half of the
 // red-team contrast. Defaults to a local instance (cd standalone/hostile-mcp-server
 // && npm start); override to a port-forward of the in-cluster one if preferred.
-const DEFAULT_DIRECT_HOSTILE_MCP_URL = () => process.env.DIRECT_HOSTILE_MCP_URL || 'http://127.0.0.1:8899/';
+const DEFAULT_DIRECT_HOSTILE_MCP_URL = () => (mode.isMock() ? null : (process.env.DIRECT_HOSTILE_MCP_URL || 'http://127.0.0.1:8899/'));
 
 function privilegeDoorUrl(appName) {
-  return `${PRIVILEGE_GATEWAY_HOST}/${appName}/mcp`;
+  return `${privilegeHost()}/${appName}/mcp`;
 }
 
 const GATEWAY_MODES = ['direct', 'privilege'];
@@ -80,6 +89,8 @@ function freshSession() {
     direct: { ...oauthDefaults, mcpUrl: DEFAULT_DIRECT_MCP_URL() },
     privilege: { ...oauthDefaults, mcpUrl: DEFAULT_PRIVILEGE_MCP_URL() },
   };
+  // The configured default gateway is the operator's own choice, so it is allowed in live mode.
+  if (!mode.isMock()) netguard.allowOrigin(modeConfigs[DEFAULT_GATEWAY_MODE].mcpUrl);
   return {
     config: { ...modeConfigs[DEFAULT_GATEWAY_MODE] },
     gatewayMode: DEFAULT_GATEWAY_MODE,
@@ -173,6 +184,14 @@ router.get('/events', (req, res) => {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+/** In mock mode the browser is sent to this app's own mock authorize step; live mode uses the advertised URL. */
+function browserAuthUrl(req, authUrl) {
+  if (!mode.isMock()) return authUrl.toString();
+  const local = new URL('/api/gateway/mock-idp/authorize', `${req.protocol}://${req.get('host')}`);
+  local.search = authUrl.search;
+  return local.toString();
+}
+
 function randomString(size = 32) {
   return crypto.randomBytes(size).toString('base64url');
 }
@@ -298,7 +317,7 @@ async function refreshAccessToken(sess) {
   let response;
   let data = {};
   try {
-    response = await fetch(sess.oauth.tokenUri, {
+    response = await guardedFetch(sess.oauth.tokenUri, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
@@ -368,7 +387,7 @@ async function fetchMcp(sess, pathname, body, withAuth = true, allowRefreshRetry
   // actually active — every other call is unaffected.
   const streamGuardActive = sess.eventStream.active;
   const abortController = streamGuardActive ? new AbortController() : null;
-  const fetchPromise = fetch(targetUrl, {
+  const fetchPromise = guardedFetch(targetUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify(requestBody),
@@ -519,7 +538,7 @@ async function openMcpEventStream(sess) {
   const controller = new AbortController();
   let response;
   try {
-    response = await fetch(targetUrl, { method: 'GET', headers, signal: controller.signal });
+    response = await guardedFetch(targetUrl, { method: 'GET', headers, signal: controller.signal });
   } catch (err) {
     emitEvent(sess, 'mcp', { phase: 'event_stream_open_failed', message: err.message });
     return;
@@ -570,7 +589,7 @@ async function startModernSubscription(sess, types) {
   const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream', Origin: targetUrl.origin };
   addModernHeaders(headers, sess, rpc);
   if (sess.oauth.accessToken) headers.Authorization = `Bearer ${sess.oauth.accessToken}`;
-  const response = await fetch(targetUrl, { method: 'POST', headers, body: JSON.stringify(rpc), signal: controller.signal });
+  const response = await guardedFetch(targetUrl, { method: 'POST', headers, body: JSON.stringify(rpc), signal: controller.signal });
   if (!response.ok) {
     const text = await response.text();
     throw mcpRelayError(response.status, text);
@@ -691,7 +710,7 @@ function publicPolicySummary(sess) {
  * so the caller falls through to its next branch.
  */
 async function discoverProtectedResource(mcpUrl, headers = {}) {
-  const probe = await fetch(mcpUrl, {
+  const probe = await guardedFetch(mcpUrl, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 'discovery', method: 'tools/list', params: {} }),
@@ -702,13 +721,14 @@ async function discoverProtectedResource(mcpUrl, headers = {}) {
   const metaUrl = challenge.match(/resource_metadata="([^"]+)"/)?.[1];
   if (!metaUrl) return null;
 
-  const metaRes = await fetch(metaUrl, { method: 'GET' });
+  const metaRes = await guardedFetch(metaUrl, { method: 'GET' });
   if (!metaRes.ok) return null;
   const meta = await metaRes.json();
   const asUrl = Array.isArray(meta.authorization_servers) ? meta.authorization_servers[0] : null;
   if (!asUrl) return null;
+  netguard.allowOrigin(asUrl);
 
-  const asMetaRes = await fetch(`${String(asUrl).replace(/\/$/, '')}/.well-known/oauth-authorization-server`, { method: 'GET' });
+  const asMetaRes = await guardedFetch(`${String(asUrl).replace(/\/$/, '')}/.well-known/oauth-authorization-server`, { method: 'GET' });
   if (!asMetaRes.ok) return null;
   const asMeta = await asMetaRes.json();
   if (!asMeta.authorization_endpoint || !asMeta.token_endpoint) return null;
@@ -743,7 +763,7 @@ async function discoverAuth(sess) {
   let bodyText = '';
   let transportError = null;
   try {
-    response = await fetch(sess.config.mcpUrl, { method: 'GET', headers: discoverHeaders });
+    response = await guardedFetch(sess.config.mcpUrl, { method: 'GET', headers: discoverHeaders });
     bodyText = await response.text();
   } catch (err) {
     transportError = err;
@@ -780,7 +800,8 @@ async function discoverAuth(sess) {
     const authHost = mcpUrl.host.startsWith('api.') ? mcpUrl.host.replace(/^api\./, 'auth.') : 'auth.pingone.com';
     if (envId) {
       const wellKnownUrl = `https://${authHost}/${envId}/as/.well-known/openid-configuration`;
-      const metaResponse = await fetch(wellKnownUrl, { method: 'GET' });
+      netguard.allowOrigin(wellKnownUrl);
+      const metaResponse = await guardedFetch(wellKnownUrl, { method: 'GET' });
       if (metaResponse.ok) {
         const meta = await metaResponse.json();
         if (meta.authorization_endpoint && meta.token_endpoint) {
@@ -814,7 +835,7 @@ async function isDcrClientStillKnown(tokenUri, client) {
   try {
     const form = new URLSearchParams({ grant_type: 'authorization_code', code: 'dcr-liveness-probe', client_id: client.clientId });
     if (client.clientSecret) form.set('client_secret', client.clientSecret);
-    const response = await fetch(tokenUri, {
+    const response = await guardedFetch(tokenUri, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: form.toString(),
@@ -839,7 +860,7 @@ async function getOrRegisterDcrClient(authorizationUri, redirectUri, tokenEndpoi
     dcrClientCache.delete(cacheKey);
   }
 
-  const response = await fetch(cacheKey, {
+  const response = await guardedFetch(cacheKey, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -862,6 +883,8 @@ async function getOrRegisterDcrClient(authorizationUri, redirectUri, tokenEndpoi
 
 async function beginOAuthFlow(sess, req) {
   const { authorizationUri, tokenUri, issuer, selfAdvertised, advertisedScopes, tokenEndpointAuthMethods } = await discoverAuth(sess);
+  netguard.allowOrigin(authorizationUri);
+  netguard.allowOrigin(tokenUri);
   const verifier = randomString(48);
   const challenge = sha256Base64Url(verifier);
   const oauthState = randomString(24);
@@ -914,6 +937,8 @@ async function beginOAuthFlow(sess, req) {
 // A function, not a module-load constant, so a test can point it at a mock
 // console by setting the env var before the call rather than before require()
 // — the same reason consoleEnvId() below is already a function.
+const CONSOLE_LIVE_ONLY = 'The Privilege console is live only. Switch the header to Live to use it.';
+
 function consoleBase() {
   return process.env.PRIVILEGE_CONSOLE_URL || 'https://console.privilege.pingone.com';
 }
@@ -923,7 +948,7 @@ function consoleEnvId() {
 }
 
 async function consoleGet(sess, apiPath) {
-  const res = await fetch(`${consoleBase()}${apiPath}`, {
+  const res = await guardedFetch(`${consoleBase()}${apiPath}`, {
     headers: {
       Cookie: `auth_token=${sess.console.authToken}`,
       'x-procyon-session-id': sess.console.sessionId,
@@ -996,7 +1021,7 @@ function consoleTime(value) {
 
 function rememberInventory(inventory) {
   try {
-    return doorStore.saveInventory({ ...inventory, gatewayOrigin: PRIVILEGE_GATEWAY_HOST });
+    return doorStore.saveInventory({ ...inventory, gatewayOrigin: privilegeHost() });
   } catch (err) {
     console.warn('[ai-gateway-client] door store write failed:', err.message);
     return null;
@@ -1027,7 +1052,7 @@ function discoverySummary(record) {
 
 router.get('/state', (req, res) => {
   const sess = getSession(req);
-  const discovery = readInventory();
+  const discovery = mode.isMock() ? null : readInventory();
   const defaultApp = PRIVILEGE_APP();
   const siblingApps = (discovery
     ? discovery.applications.map((a) => ({ name: a.name, privilegeUrl: privilegeDoorUrl(a.name), status: a.status || '', policies: Array.isArray(a.policies) ? a.policies : [] }))
@@ -1040,7 +1065,10 @@ router.get('/state', (req, res) => {
     ]
   ).filter((app) => app.name && app.name !== defaultApp);
 
-  const presets = [
+  const presets = mode.isMock() ? [
+    { label: 'Privilege (mock): opensearch door, policy filters tools', mode: 'privilege', url: DEFAULT_PRIVILEGE_MCP_URL() },
+    { label: 'Direct (mock): same tools, no policy filter', mode: 'direct', url: DEFAULT_DIRECT_MCP_URL() },
+  ] : [
     { label: '1 · Privilege — straight at the Agent Privilege', mode: 'privilege', url: DEFAULT_PRIVILEGE_MCP_URL() },
     ...siblingApps.map((app) => ({ label: `Privilege — ${app.name}`, mode: 'privilege', url: app.privilegeUrl })),
     { label: '2 · Direct — no Privilege in the path', mode: 'direct', url: DEFAULT_DIRECT_MCP_URL() },
@@ -1049,6 +1077,7 @@ router.get('/state', (req, res) => {
   ].filter((p) => p.url);
 
   res.json({
+    mode: { current: mode.currentMode(), liveConfirmed: mode.isLiveConfirmed(), simulated: mode.isMock() },
     config: sess.config,
     gatewayMode: sess.gatewayMode,
     gatewayConfigs: sess.gatewayConfigs,
@@ -1078,6 +1107,7 @@ router.post('/config', express.json(), (req, res) => {
   const patch = Object.fromEntries(Object.entries(body).filter(([key, v]) => key !== 'gatewayMode' && v !== undefined && v !== null && v !== ''));
   const gatewayPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => ['mcpUrl', 'clientId', 'scopes'].includes(key)));
   sess.gatewayConfigs[gatewayMode] = { ...sess.gatewayConfigs[gatewayMode], ...gatewayPatch };
+  if (gatewayPatch.mcpUrl) netguard.allowOrigin(gatewayPatch.mcpUrl);
 
   // Actually switching mode+door — stash the outgoing key's live token so
   // returning to it later can reuse it, then restore the destination key's.
@@ -1109,7 +1139,7 @@ router.post('/auth/start', express.json(), async (req, res) => {
     const authUrl = await beginOAuthFlow(sess, req);
     sess.pendingAuth.returnTo = sanitizeReturnTo(req.body?.returnTo);
     emitEvent(sess, 'oauth', { phase: 'start', authUrl: authUrl.toString() });
-    res.json({ authUrl: authUrl.toString() });
+    res.json({ authUrl: browserAuthUrl(req, authUrl) });
   } catch (err) {
     emitEvent(sess, 'error', { scope: 'oauth_start', message: err.message });
     res.status(500).json({ error: err.message });
@@ -1144,7 +1174,7 @@ router.get('/auth/callback', async (req, res) => {
     const clientSecret = sess.pendingAuth.dcrClientSecret || process.env.GATEWAY_CLIENT_SECRET || '';
     if (clientSecret) tokenBody.set('client_secret', clientSecret);
 
-    const tokenResponse = await fetch(sess.pendingAuth.tokenUri, {
+    const tokenResponse = await guardedFetch(sess.pendingAuth.tokenUri, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: tokenBody,
@@ -1332,10 +1362,12 @@ router.post('/doors/probe', express.json(), async (req, res) => {
 
 router.post('/console/connect', express.json(), async (req, res) => {
   const sess = getSession(req);
+  if (mode.isMock()) return res.status(409).json({ error: CONSOLE_LIVE_ONLY });
   const authToken = String(req.body?.authToken || '').trim();
   if (!authToken) return res.status(400).json({ error: 'authToken is required.' });
+  netguard.allowOrigin(consoleBase());
   try {
-    const idRes = await fetch(`${consoleBase()}/session-token`, { headers: { Cookie: `auth_token=${authToken}` } });
+    const idRes = await guardedFetch(`${consoleBase()}/session-token`, { headers: { Cookie: `auth_token=${authToken}` } });
     const idBody = await idRes.json().catch(() => ({}));
     const sessionId = idBody.session_id;
     if (!sessionId) return res.status(502).json({ error: 'Console did not return a session_id.' });
@@ -1352,6 +1384,7 @@ router.post('/console/connect', express.json(), async (req, res) => {
 
 router.get('/console/inventory', async (req, res) => {
   const sess = getSession(req);
+  if (mode.isMock()) return res.status(409).json({ error: CONSOLE_LIVE_ONLY });
   if (!sess.console?.authToken) return res.status(401).json({ error: 'No console token. Connect first.' });
   try {
     const inventory = await consoleInventory(sess);
@@ -1430,6 +1463,50 @@ router.put('/env', express.json(), (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Mode, netguard, mock authorize step, and diagrams
+// ---------------------------------------------------------------------------
+const MODE_MESSAGES = {
+  confirm_required: 'Switching to Live contacts the gateway you enter and the sign-in server it advertises, with real sign-in. Confirm to continue.',
+  bad_mode: 'Mode must be "mock" or "live".',
+};
+
+router.get('/mode', (_req, res) => {
+  res.set('Cache-Control', 'no-store').json({
+    mode: mode.currentMode(),
+    liveConfirmed: mode.isLiveConfirmed(),
+    simulated: mode.isMock(),
+    netguard: netguard.statsSnapshot(),
+  });
+});
+
+router.put('/mode', express.json(), (req, res) => {
+  const next = req.body?.mode;
+  const err = mode.setMode(next, { confirm: req.body?.confirm === true });
+  if (err) return res.status(err === 'confirm_required' ? 409 : 400).json({ error: err, message: MODE_MESSAGES[err] });
+  // A mode change starts a clean session: no token, no client registration or tool list from the other mode.
+  resetSession();
+  emitEvent(session, 'config', { mode: mode.currentMode() });
+  res.json({ mode: mode.currentMode(), liveConfirmed: mode.isLiveConfirmed(), simulated: mode.isMock() });
+});
+
+router.get('/netguard', (_req, res) => {
+  res.set('Cache-Control', 'no-store').json(netguard.selfTest());
+});
+
+router.get('/mock-idp/authorize', (req, res) => {
+  if (!mode.isMock()) return res.status(404).json({ error: 'mock_only', message: 'The mock sign-in step exists only in mock mode.' });
+  const result = mockGateway.authorize(req.query || {});
+  if (result.location) return res.redirect(result.status, result.location);
+  res.status(result.status).json({ error: result.error, error_description: result.description, 'x-simulated': 'Mock authorize step.' });
+});
+
+router.get('/diagrams/:name', (req, res) => {
+  const diagram = diagrams.load(req.params.name);
+  if (!diagram) return res.status(404).json({ error: 'diagram_not_found' });
+  res.set('Cache-Control', 'no-store').json(diagram);
+});
+
 module.exports = router;
 
 /** Test hooks. */
@@ -1443,10 +1520,17 @@ module.exports.__test = {
   },
 };
 
+/** Clears the session, mock state and cached client registrations (used by a mode switch). */
+function resetSession() {
+  netguard.forgetLiveOrigins();
+  mockGateway.reset();
+  session = freshSession();
+  dcrClientCache.clear();
+}
+
 /** Clears the session, SSE clients and cached client registrations (used by POST /api/reset). */
 function resetAll() {
-  session = freshSession();
+  resetSession();
   sseClients.clear();
-  dcrClientCache.clear();
 }
 module.exports.resetAll = resetAll;

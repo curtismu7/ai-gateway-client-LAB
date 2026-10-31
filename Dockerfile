@@ -14,4 +14,7 @@ COPY --from=webbuild /app/web/dist ../web/dist
 
 EXPOSE 6880
 ENV PORT=6880
+# Listen on all interfaces inside the container only; compose publishes it on 127.0.0.1.
+ENV HOST=0.0.0.0
+ENV MODE=mock
 CMD ["node", "index.js"]
