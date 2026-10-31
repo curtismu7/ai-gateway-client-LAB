@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const doorStore = require('./doorStore');
+const hosted = require('./hosted');
 const mode = require('./mode');
 const netguard = require('./netguard');
 const mockGateway = require('./mockGateway');
@@ -35,7 +36,7 @@ const router = express.Router();
 // In mock mode every gateway URL is the in-process mock (netguard refuses anything else),
 // so the live host and app overrides are ignored there.
 const LIVE_PRIVILEGE_HOST = 'https://mcp-gateway.example.invalid';
-const privilegeHost = () => (mode.isMock() ? mockGateway.MOCK_GATEWAY_ORIGIN : (process.env.PRIVILEGE_GATEWAY_HOST || LIVE_PRIVILEGE_HOST));
+const privilegeHost = () => (mode.isMock() ? mockGateway.MOCK_GATEWAY_ORIGIN : (process.env.PRIVILEGE_GATEWAY_HOST || hosted.gatewayHost() || LIVE_PRIVILEGE_HOST));
 const PRIVILEGE_APP = () => (mode.isMock() ? 'opensearch' : (process.env.PRIVILEGE_GATEWAY_APP || 'opensearch'));
 const PRIVILEGE_APP_OPENSEARCH = () => process.env.PRIVILEGE_GATEWAY_APP_OPENSEARCH || 'opensearch';
 const PRIVILEGE_APP_BRAVE = () => process.env.PRIVILEGE_GATEWAY_APP_BRAVE || 'brave';
@@ -57,7 +58,7 @@ const DEFAULT_DIRECT_BRAVE_MCP_URL = () => (mode.isMock() ? null : (process.env.
 // The raw hostile server, no Privilege in the path — the "Direct" half of the
 // red-team contrast. Defaults to a local instance (cd standalone/hostile-mcp-server
 // && npm start); override to a port-forward of the in-cluster one if preferred.
-const DEFAULT_DIRECT_HOSTILE_MCP_URL = () => (mode.isMock() ? null : (process.env.DIRECT_HOSTILE_MCP_URL || 'http://127.0.0.1:8899/'));
+const DEFAULT_DIRECT_HOSTILE_MCP_URL = () => (mode.isMock() ? null : (process.env.DIRECT_HOSTILE_MCP_URL || hosted.hostileMcpUrl() || 'http://127.0.0.1:8899/'));
 
 function privilegeDoorUrl(appName) {
   return `${privilegeHost()}/${appName}/mcp`;
