@@ -38,7 +38,8 @@ async function startMockMcpServer(handler) {
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
-    const rpc = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const raw = Buffer.concat(chunks).toString('utf8');
+    const rpc = raw ? JSON.parse(raw) : {}; // OAuth discovery sends bodiless GETs
     const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
     requests.push({ pathname, rpc, authorization: req.headers.authorization });
 
@@ -191,6 +192,88 @@ test('tools/list and tools/call 401 without a token', async () => {
       body: JSON.stringify({ name: 'echo', arguments: {} }),
     });
     assert.equal(call.status, 401);
+  });
+});
+
+// A Direct-mode server that advertises no OAuth (the hosted hostile fixture) has nothing to sign in to.
+const openServer = ({ rpc }) => {
+  if (rpc.method === 'server/discover') return { status: 400, body: 'no modern handshake' };
+  if (rpc.method === 'initialize') return { result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'Open Fixture', version: '1' } } };
+  if (rpc.method === 'notifications/initialized') return { result: {} };
+  if (rpc.method === 'tools/list') return { result: { tools: [{ name: 'get_weather', description: 'Weather' }] } };
+  return { status: 400, body: `Unexpected MCP method: ${rpc.method}` };
+};
+const gatedServer = () => ({ status: 401, body: '{"error":"unauthorized"}' });
+const startOpen = (base, mcpBase, gatewayMode = 'direct') => configureDoor(base, { gatewayMode, mcpUrl: `${mcpBase}/mcp` });
+const post = (base, route, body = {}) => fetch(`${base}/api/gateway${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const stateOf = async (base) => (await fetch(`${base}/api/gateway/state`)).json();
+
+test('Direct mode: a server with no OAuth needs no sign-in, and no token is ever sent to it', async () => {
+  await withMockMcpServer(openServer, async (mcpBase, requests) => {
+    await withServer(async (base) => {
+      await startOpen(base, mcpBase);
+      const start = await post(base, '/auth/start');
+      assert.deepEqual(await start.json(), { open: true });
+      const state = await stateOf(base);
+      assert.equal(state.oauth.authenticated, true);
+      assert.equal(state.oauth.source, 'open-server');
+      const list = await post(base, '/tools/list');
+      assert.equal(list.status, 200);
+      assert.deepEqual((await list.json()).tools.map((t) => t.name), ['get_weather']);
+      assert.ok(requests.length > 1);
+      assert.ok(requests.every((r) => r.authorization === undefined), 'no Authorization header reached the open server');
+    });
+  });
+});
+
+test('Direct mode: a server that challenges with 401 still needs sign-in', async () => {
+  await withMockMcpServer(gatedServer, async (mcpBase) => {
+    await withServer(async (base) => {
+      await startOpen(base, mcpBase);
+      const start = await post(base, '/auth/start');
+      assert.notEqual((await start.json()).open, true);
+      assert.equal((await stateOf(base)).oauth.authenticated, false);
+      assert.equal((await post(base, '/tools/list')).status, 401);
+    });
+  });
+});
+
+test('a 200 that is not an MCP reply is not treated as an open server', async () => {
+  await withMockMcpServer(() => ({ status: 200, body: '<html>hello</html>' }), async (mcpBase) => {
+    await withServer(async (base) => {
+      await startOpen(base, mcpBase);
+      assert.notEqual((await (await post(base, '/auth/start')).json()).open, true);
+      assert.equal((await stateOf(base)).oauth.authenticated, false);
+    });
+  });
+});
+
+test('Privilege mode never gets the open-server shortcut, even if the URL is open', async () => {
+  await withMockMcpServer(openServer, async (mcpBase) => {
+    await withServer(async (base) => {
+      await startOpen(base, mcpBase, 'privilege');
+      const start = await post(base, '/auth/start');
+      assert.notEqual((await start.json()).open, true);
+      assert.equal((await stateOf(base)).oauth.authenticated, false);
+      assert.equal((await post(base, '/tools/list')).status, 401);
+    });
+  });
+});
+
+test('switching door or signing out forgets the open-server state', async () => {
+  await withMockMcpServer(openServer, async (mcpBase) => {
+    await withServer(async (base) => {
+      await startOpen(base, mcpBase);
+      await post(base, '/auth/start');
+      assert.equal((await stateOf(base)).oauth.authenticated, true);
+      await configureDoor(base, { gatewayMode: 'direct', mcpUrl: `${mcpBase}/other/mcp` });
+      assert.equal((await stateOf(base)).oauth.authenticated, false, 'a different URL is not trusted');
+      await configureDoor(base, { gatewayMode: 'direct', mcpUrl: `${mcpBase}/mcp` });
+      await post(base, '/auth/start');
+      assert.equal((await stateOf(base)).oauth.authenticated, true);
+      await post(base, '/auth/logout');
+      assert.equal((await stateOf(base)).oauth.authenticated, false);
+    });
   });
 });
 

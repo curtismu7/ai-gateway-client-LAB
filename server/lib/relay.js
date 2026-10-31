@@ -103,6 +103,8 @@ function freshSession() {
     // already-signed-in door doesn't force a redundant /auth/start. Keyed by
     // door too: each door is its own OAuth audience.
     savedOauthByDoor: {},
+    // True when the Direct-mode MCP URL answered an unauthenticated initialize with no OAuth challenge.
+    openServer: false,
     oauth: {
       accessToken: null, refreshToken: null, expiresAt: null, tokenUri: null, source: null,
       // Set when login went through a self-advertising gateway (the gateway
@@ -298,6 +300,10 @@ function nextMcpRequestId(sess) {
 
 // Refresh a little before expiry so an in-flight relay never races the clock.
 const TOKEN_REFRESH_SKEW_MS = 60 * 1000;
+
+// Signed in with a token, or talking to a Direct-mode server that advertises no OAuth at all
+// (see probeOpenServer). The gateway doors never get the second kind.
+const isAuthed = (sess) => Boolean(sess.oauth.accessToken) || sess.openServer === true;
 
 function accessTokenExpiring(sess) {
   if (!sess.oauth.expiresAt) return false;
@@ -1082,7 +1088,7 @@ router.get('/state', (req, res) => {
     config: sess.config,
     gatewayMode: sess.gatewayMode,
     gatewayConfigs: sess.gatewayConfigs,
-    oauth: { authenticated: Boolean(sess.oauth.accessToken), source: sess.oauth.source || null, expiresAt: sess.oauth.expiresAt, scope: sess.oauth.scope || '' },
+    oauth: { authenticated: isAuthed(sess), source: sess.openServer ? 'open-server' : (sess.oauth.source || null), expiresAt: sess.oauth.expiresAt, scope: sess.oauth.scope || '' },
     doorDiscovery: discoverySummary(discovery),
     tools: sess.tools,
     policy: publicPolicySummary(sess),
@@ -1124,19 +1130,47 @@ router.post('/config', express.json(), (req, res) => {
     const restoredIsLive = restored && (!restored.expiresAt || restored.expiresAt > Date.now());
     sess.oauth = restoredIsLive
       ? { ...restored }
-      : { accessToken: null, refreshToken: null, expiresAt: null, tokenUri: null, source: null, dcrClientId: null, dcrClientSecret: null };
+      : { accessToken: null, refreshToken: null, expiresAt: null, tokenUri: null, source: null, dcrClientId: null, dcrClientSecret: null };    sess.openServer = false;
   }
   sess.gatewayMode = gatewayMode;
   sess.config = { ...sess.gatewayConfigs[gatewayMode] };
   resetMcpState(sess);
   emitEvent(sess, 'config', { config: sess.config });
-  res.json({ ok: true, config: sess.config, gatewayMode: sess.gatewayMode, gatewayConfigs: sess.gatewayConfigs, oauth: { authenticated: Boolean(sess.oauth.accessToken) } });
+  res.json({ ok: true, config: sess.config, gatewayMode: sess.gatewayMode, gatewayConfigs: sess.gatewayConfigs, oauth: { authenticated: isAuthed(sess) } });
 });
+
+// Direct mode only: a server that answers an unauthenticated initialize with a JSON-RPC result and no
+// OAuth challenge has nothing to sign in to. Never used for the Privilege gateway doors, and never in
+// mock mode. Any failure means "not open", so the normal OAuth flow runs.
+async function probeOpenServer(sess) {
+  if (mode.isMock() || sess.gatewayMode !== 'direct' || !sess.config.mcpUrl) return false;
+  try {
+    const target = new URL(sess.config.mcpUrl);
+    const response = await guardedFetch(target, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Origin: target.origin },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: LEGACY_MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: MCP_CLIENT_INFO },
+      }),
+    });
+    if (!response.ok || response.headers.get('www-authenticate')) return false;
+    return /"result"\s*:/.test(await response.text());
+  } catch {
+    return false;
+  }
+}
 
 router.post('/auth/start', express.json(), async (req, res) => {
   const sess = getSession(req);
   try {
     if (!sess.config.mcpUrl) return res.status(400).json({ error: 'An MCP URL is required before auth start.' });
+    if (await probeOpenServer(sess)) {
+      sess.openServer = true;
+      resetMcpState(sess);
+      emitEvent(sess, 'oauth', { phase: 'open-server', url: sess.config.mcpUrl });
+      return res.json({ open: true });
+    }
     const authUrl = await beginOAuthFlow(sess, req);
     sess.pendingAuth.returnTo = sanitizeReturnTo(req.body?.returnTo);
     emitEvent(sess, 'oauth', { phase: 'start', authUrl: authUrl.toString() });
@@ -1210,6 +1244,7 @@ router.post('/auth/logout', (req, res) => {
   sess.oauth.expiresAt = null;
   sess.oauth.tokenUri = null;
   sess.oauth.scope = '';
+  sess.openServer = false;
   resetMcpState(sess);
   emitEvent(sess, 'oauth', { phase: 'logout' });
   res.json({ ok: true });
@@ -1218,7 +1253,7 @@ router.post('/auth/logout', (req, res) => {
 router.post('/tools/list', express.json(), async (req, res) => {
   const sess = getSession(req);
   try {
-    if (!sess.oauth.accessToken) return res.status(401).json({ error: 'Not authenticated — click Sign In.' });
+    if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated — click Sign In.' });
     await discoverPolicyTools(sess);
     res.json({ tools: sess.tools, policy: publicPolicySummary(sess) });
   } catch (err) {
@@ -1231,7 +1266,7 @@ router.post('/tools/list', express.json(), async (req, res) => {
 router.post('/tools/call', express.json(), async (req, res) => {
   const sess = getSession(req);
   try {
-    if (!sess.oauth.accessToken) return res.status(401).json({ error: 'Not authenticated.' });
+    if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
     const { name, arguments: args } = req.body || {};
     if (!name) return res.status(400).json({ error: 'Tool name is required.' });
     const data = await callMcp(sess, 'tools/call', { name, arguments: args || {} });
@@ -1245,7 +1280,7 @@ router.post('/tools/call', express.json(), async (req, res) => {
 router.get('/catalog', async (req, res) => {
   const sess = getSession(req);
   try {
-    if (!sess.oauth.accessToken) return res.status(401).json({ error: 'Not authenticated.' });
+    if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
     await ensureMcpSessionInitialized(sess);
     const capabilities = sess.mcpSession.capabilities || {};
     const catalog = { tools: sess.tools, prompts: [], resources: [], resourceTemplates: [] };
@@ -1272,7 +1307,7 @@ router.get('/catalog', async (req, res) => {
 router.post('/request', express.json(), async (req, res) => {
   const sess = getSession(req);
   try {
-    if (!sess.oauth.accessToken) return res.status(401).json({ error: 'Not authenticated.' });
+    if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
     const { method, params } = req.body || {};
     if (typeof method !== 'string' || !method.includes('/')) return res.status(400).json({ error: 'A valid MCP method is required.' });
     const data = await callMcp(sess, method, params || {});
@@ -1286,7 +1321,7 @@ router.post('/request', express.json(), async (req, res) => {
 router.post('/subscriptions/start', express.json(), async (req, res) => {
   const sess = getSession(req);
   try {
-    if (!sess.oauth.accessToken) return res.status(401).json({ error: 'Not authenticated.' });
+    if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
     const types = Array.isArray(req.body?.types) ? req.body.types : ['toolsListChanged', 'promptsListChanged', 'resourcesListChanged', 'resourceSubscriptions'];
     await startModernSubscription(sess, types);
     res.status(202).json({ ok: true, types });
@@ -1305,7 +1340,7 @@ router.delete('/subscriptions', (req, res) => {
 router.post('/rpc', express.json(), async (req, res) => {
   const sess = getSession(req);
   try {
-    if (!sess.oauth.accessToken) return res.status(401).json({ error: 'Not authenticated.' });
+    if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
     const body = req.body || {};
     const method = body?.method || '';
     if (method && method !== 'initialize' && method !== 'notifications/initialized') {
@@ -1343,7 +1378,7 @@ function probeSessionFor(sess, mcpUrl) {
 // missing grant from a wrong door is to try the other doors with the same token.
 router.post('/doors/probe', express.json(), async (req, res) => {
   const sess = getSession(req);
-  if (!sess.oauth.accessToken) return res.status(401).json({ error: 'Not authenticated.' });
+  if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
   const urls = [...new Set((Array.isArray(req.body?.urls) ? req.body.urls : []).filter((u) => typeof u === 'string' && u))]
     .filter((u) => u !== sess.config.mcpUrl)
     .slice(0, 12); // bound the fan-out: one gateway round trip each
