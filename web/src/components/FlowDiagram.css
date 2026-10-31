@@ -46,6 +46,11 @@
   padding: 4px 6px;
 }
 
+.flow-panel__zoom {
+  display: inline-flex;
+  gap: 4px;
+}
+
 .flow-panel__count {
   font-size: 12px;
   color: var(--muted);
@@ -59,6 +64,93 @@
   overflow: hidden;
 }
 
+/* Lanes meet each box off-centre, so the stock centre dots would point at nothing. */
+.flow-node .react-flow__handle {
+  opacity: 0;
+}
+
+/* Edge labels live in screen space on top of the canvas, so their text keeps its size at any zoom. */
+.flow-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  overflow: hidden;
+}
+
+.flow-labels__leaders {
+  position: absolute;
+  inset: 0;
+}
+
+.flow-labels__leaders line {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.flow-label {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  font-family: var(--font-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.flow-label--badge {
+  border-radius: 50%;
+  border: 2px solid var(--text);
+  font-weight: 700;
+}
+
+.flow-label[data-state="on"] {
+  border-color: var(--accent);
+}
+
+.flow-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.flow-legend__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.flow-legend__num {
+  flex: none;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--text);
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.flow-legend__item[data-state="on"] .flow-legend__num {
+  border-color: var(--accent);
+}
+
 .flow-node {
   width: 200px;
   border-radius: 8px;
@@ -67,6 +159,10 @@
   color: var(--text);
   font-family: var(--font-primary);
   box-shadow: none;
+  /* Tall enough that edges joining the same two boxes each get their own lane on the box side. */
+  min-height: 96px;
+  display: flex;
+  align-items: center;
 }
 
 .flow-node--red { border-color: var(--accent); }
@@ -102,10 +198,6 @@
   stroke-width: 3;
 }
 
-.react-flow__edge-text {
-  fill: var(--text);
-}
-
 .flow-step {
   border: 1px solid var(--border);
   border-left: 4px solid var(--accent);
@@ -119,6 +211,6 @@
   margin: 4px 0 0;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 600px) {
   .flow-canvas { height: 300px; }
 }

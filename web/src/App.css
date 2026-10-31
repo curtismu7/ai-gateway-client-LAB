@@ -45,8 +45,7 @@ body {
   text-decoration: none;
 }
 .btn:hover { background: var(--th-bg-hover); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn:disabled { opacity: 0.75; cursor: not-allowed; }
 .btn--danger { border-color: var(--accent); color: var(--accent); }
 
 select, input, textarea {
@@ -76,7 +75,8 @@ input.wide, select.wide { min-width: 260px; }
   gap: 12px;
   padding: 8px 20px;
   background: var(--accent-soft);
-  color: var(--accent-deep);
+  color: var(--text);
+  border-left: 4px solid var(--accent);
   font-size: var(--font-size-xs);
 }
 
@@ -147,9 +147,14 @@ input.wide, select.wide { min-width: 260px; }
 
 /* Primary action in this app: the Ping Red gradient, white text. */
 .btn--primary {
-  background: linear-gradient(90deg, #d20e0f 55%, #aa0005);
+  background: var(--accent-gradient);
   color: var(--on-accent);
-  border-color: transparent;
+  border-color: var(--primary-edge);
+}
+
+/* A disabled primary keeps its label readable (matches the shared stylesheet). */
+.btn--primary:disabled {
+  opacity: 0.88;
 }
 
 .banner--simulated {
