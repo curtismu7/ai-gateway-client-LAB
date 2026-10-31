@@ -12,7 +12,7 @@ const line = (ok, label, detail = '') => {
   console.log(`${ok ? 'OK  ' : 'FAIL'}  ${label}${detail ? ` (${detail})` : ''}`);
 };
 
-line(Number(process.versions.node.split('.')[0]) >= 22, 'Node 22 or newer', process.version);
+line(Number(process.versions.node.split('.')[0]) >= 26, 'Node 26 or newer', process.version);
 
 const hasFile = fs.existsSync(sharedEnv);
 line(hasFile, 'shared settings file', sharedEnv);
