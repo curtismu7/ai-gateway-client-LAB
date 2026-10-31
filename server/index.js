@@ -23,6 +23,17 @@ app.use('/api/gateway', relay);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+// Health contract (demo-shelf docs/health-contract.md) and reset for doctor and the shelf.
+const DEMO = { id: 'ai-gateway-client', name: 'Agent Privilege Client LAB', version: require('../package.json').version || '0.1.0' };
+app.get('/api/health', (_req, res) => {
+  const state = process.env.PINGONE_ENVIRONMENT_ID ? 'ready' : 'needs-setup';
+  res.set('Cache-Control', 'no-store').json({ schema: 'demo-health/1', at: new Date().toISOString(), state, runtime: 'live', demo: DEMO });
+});
+app.post('/api/reset', (_req, res) => {
+  relay.resetAll();
+  res.json({ ok: true });
+});
+
 // ── Static web build (production) ───────────────────────────────────────
 const webDist = path.join(__dirname, '..', 'web', 'dist');
 app.use(express.static(webDist));

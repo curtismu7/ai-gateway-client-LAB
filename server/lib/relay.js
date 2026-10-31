@@ -1442,3 +1442,11 @@ module.exports.__test = {
     sseClients.clear();
   },
 };
+
+/** Clears the session, SSE clients and cached client registrations (used by POST /api/reset). */
+function resetAll() {
+  session = freshSession();
+  sseClients.clear();
+  dcrClientCache.clear();
+}
+module.exports.resetAll = resetAll;

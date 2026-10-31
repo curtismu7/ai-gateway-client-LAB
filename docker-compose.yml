@@ -1,0 +1,14 @@
+# Local standalone form (rule 18). Publishes 127.0.0.1 only.
+# Settings come from the one shared file, ~/Development/.env (or STANDALONE_ENV).
+services:
+  app:
+    build: .
+    image: ai-gateway-client-lab:local
+    ports:
+      - "127.0.0.1:${HOST_PORT:-6880}:6880"
+    environment:
+      PORT: "6880"
+    env_file:
+      - path: ${STANDALONE_ENV:-../.env}
+        required: false
+    restart: unless-stopped

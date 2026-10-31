@@ -1,0 +1,12 @@
+{
+  "id": "ai-gateway-client",
+  "name": "Agent Privilege Client LAB",
+  "catalogId": "D20",
+  "kind": "Tester",
+  "description": "A local, no-login test client for an OAuth-protected MCP gateway. Shows one tool call through the gateway and directly, so the policy difference is visible.",
+  "url": "http://127.0.0.1:6880",
+  "healthPath": "/api/health",
+  "composeFile": "docker-compose.yml",
+  "composeOverlays": [],
+  "notes": "Host-run: npm start (port 6880). Or: docker compose up --build -d (publishes 127.0.0.1:6880 only). Settings: ~/Development/.env."
+}
