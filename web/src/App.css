@@ -147,7 +147,7 @@ input.wide, select.wide { min-width: 260px; }
 
 /* Primary action in this app: the Ping Red gradient, white text. */
 .btn--primary {
-  background: linear-gradient(90deg, #d20e0f 55%, #aa0005);
+  background: var(--accent-gradient);
   color: var(--on-accent);
   border-color: transparent;
 }

@@ -24,6 +24,9 @@
   --accent-soft: #fde8e8;
   --focus: #12538d;
   --danger-text: #aa0005;
+  --accent-gradient: linear-gradient(90deg, #d20e0f 55%, #aa0005);
+  --status-ok: #1d7a43;              /* semantic green: status dots */
+  --on-accent-border: rgba(255, 255, 255, 0.35); /* thin border or spinner ring drawn on the accent */
   --font-primary: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
 }
@@ -41,6 +44,7 @@
     --accent-soft: #3a1213;
     --focus: #fcfcfc;
     --danger-text: #fca5a5;
+    --status-ok: #7fd1a0;
   }
 }
 
@@ -56,6 +60,7 @@
   --accent-soft: #3a1213;
   --focus: #fcfcfc;
   --danger-text: #fca5a5;
+  --status-ok: #7fd1a0;
 }
 
 * {
@@ -129,7 +134,7 @@ button:disabled {
 
 /* Primary action: the Ping Red gradient, white text. Add class="primary". */
 button.primary {
-  background: linear-gradient(90deg, #d20e0f 55%, #aa0005);
+  background: var(--accent-gradient);
   color: var(--on-accent);
   border-color: transparent;
 }
