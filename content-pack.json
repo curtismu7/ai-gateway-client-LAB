@@ -1,0 +1,74 @@
+{
+  "schema": "demo-content-pack/1",
+  "id": "ai-gateway-client",
+  "title": "Agent Privilege Client: one tool call, two paths",
+  "version": "1.0.0",
+  "source": {
+    "repo": "ping-sandbox/ai-gateway-client-LAB",
+    "commit": "21bbeaf",
+    "generated": "2026-10-31"
+  },
+  "demo": {
+    "id": "ai-gateway-client",
+    "name": "Agent Privilege Client LAB",
+    "catalog": "D20",
+    "baseUrl": "http://127.0.0.1:6880",
+    "doctor": "/api/health",
+    "tags": [
+      "mcp",
+      "gateway",
+      "oauth",
+      "pkce"
+    ]
+  },
+  "glossary": [
+    {
+      "id": "mcp-gateway",
+      "term": "MCP gateway",
+      "definition": "A server that sits in front of MCP tools and decides which callers may use them, using the caller's OAuth token."
+    },
+    {
+      "id": "pkce",
+      "term": "PKCE",
+      "definition": "Proof Key for Code Exchange. The client proves it started a sign-in by sending a secret it created, so a stolen authorization code is useless on its own."
+    }
+  ],
+  "sources": [
+    {
+      "id": "mcp-spec",
+      "title": "Model Context Protocol specification",
+      "url": "https://modelcontextprotocol.io/specification",
+      "kind": "spec",
+      "use": "Background on MCP tool calls and authorization.",
+      "status": "not-read",
+      "checked": "2026-10-31"
+    }
+  ],
+  "cards": [
+    {
+      "id": "start-the-app",
+      "label": "Start the app and check it",
+      "description": "Run npm start, then npm run doctor. The doctor lists anything still missing.",
+      "group": "setup",
+      "action": {
+        "type": "external",
+        "href": "http://127.0.0.1:6880"
+      },
+      "terms": []
+    },
+    {
+      "id": "one-call-two-paths",
+      "label": "Call a tool through the gateway and directly",
+      "description": "Sign in, then send the same tool call down both paths and compare the answers.",
+      "group": "try-it",
+      "action": {
+        "type": "route",
+        "href": "/"
+      },
+      "terms": [
+        "mcp-gateway",
+        "pkce"
+      ]
+    }
+  ]
+}
