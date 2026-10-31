@@ -38,7 +38,7 @@
 }
 .inspector-shell-topbar__btn:hover { background: var(--th-bg-hover); }
 .inspector-shell-topbar__btn--active { background: var(--accent); border-color: var(--accent); color: var(--th-text-invert); }
-.inspector-shell-topbar__btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.inspector-shell-topbar__btn:disabled { opacity: 0.75; cursor: not-allowed; }
 .inspector-shell-topbar__theme-toggle {
   color: var(--th-text);
   font-size: var(--font-size-2xs);
@@ -290,7 +290,7 @@
   transition: background 0.1s;
 }
 .inspector-shell-btn-call:hover { background: var(--accent-deep); }
-.inspector-shell-btn-call:disabled { opacity: 0.5; cursor: not-allowed; }
+.inspector-shell-btn-call:disabled { opacity: 0.75; cursor: not-allowed; }
 .inspector-shell-btn-clear {
   padding: 9px 14px;
   font-size: var(--font-size-sm);
@@ -400,7 +400,7 @@
   cursor: pointer;
 }
 .inspector-shell-replay-bar__btn:hover { background: var(--th-bg-hover); }
-.inspector-shell-replay-bar__btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.inspector-shell-replay-bar__btn:disabled { opacity: 0.75; cursor: not-allowed; }
 
 /* Mobile / iOS: the 3-column grid (240px + 6px + 380px + 6px + 1fr, ~632px
    minimum before the right column even starts) never fits a phone. Only
