@@ -1,3 +1,7 @@
+const path = require('path');
+const os = require('os');
+require('dotenv').config({ path: process.env.STANDALONE_ENV || path.join(os.homedir(), 'Development', '.env') });
+
 #!/usr/bin/env node
 'use strict';
 /**
