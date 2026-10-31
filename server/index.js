@@ -1,7 +1,3 @@
-const path = require('path');
-const os = require('os');
-require('dotenv').config({ path: process.env.STANDALONE_ENV || path.join(os.homedir(), 'Development', '.env') });
-
 #!/usr/bin/env node
 'use strict';
 /**
@@ -12,9 +8,9 @@ require('dotenv').config({ path: process.env.STANDALONE_ENV || path.join(os.home
  * through it. Defaults to PingOne's Agent Privilege; point it at any
  * other self-advertising (RFC 9728/8414) MCP gateway via env vars.
  */
-const path = require('path');
-const os = require('os');
-require('dotenv').config({ path: process.env.STANDALONE_ENV || path.join(os.homedir(), 'Development', '.env') });
+require('dotenv').config({
+  path: process.env.STANDALONE_ENV || require('path').join(require('os').homedir(), 'Development', '.env'),
+});
 
 const path = require('path');
 const express = require('express');
