@@ -79,7 +79,7 @@ test('waits for the relay callback to report an authenticated session', async ()
     { oauth: { authenticated: true } },
   ];
   const requested = [];
-  await waitForAuthenticatedSession('http://127.0.0.1:3910', {
+  await waitForAuthenticatedSession('http://127.0.0.1:6880', {
     fetchImpl: async (url) => {
       requested.push(url);
       return { ok: true, json: async () => responses.shift() };
@@ -89,15 +89,15 @@ test('waits for the relay callback to report an authenticated session', async ()
     sleep: async () => {},
   });
   assert.deepEqual(requested, [
-    'http://127.0.0.1:3910/api/gateway/state',
-    'http://127.0.0.1:3910/api/gateway/state',
+    'http://127.0.0.1:6880/api/gateway/state',
+    'http://127.0.0.1:6880/api/gateway/state',
   ]);
 });
 
 test('sign-in wait times out with a safe message when the callback never arrives', async () => {
   let now = 0;
   let requests = 0;
-  await assert.rejects(waitForAuthenticatedSession('http://127.0.0.1:3910', {
+  await assert.rejects(waitForAuthenticatedSession('http://127.0.0.1:6880', {
     fetchImpl: async () => {
       requests += 1;
       return { ok: true, json: async () => ({ oauth: { authenticated: false } }) };
@@ -115,7 +115,7 @@ test('sign-in wait times out with a safe message when the callback never arrives
 });
 
 test('sign-in status failures do not echo fetch errors', async () => {
-  await assert.rejects(waitForAuthenticatedSession('http://127.0.0.1:3910', {
+  await assert.rejects(waitForAuthenticatedSession('http://127.0.0.1:6880', {
     fetchImpl: async () => { throw new Error('response contained dummy-private-test-token'); },
     timeoutMs: 1,
   }), (err) => {

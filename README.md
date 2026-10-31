@@ -15,16 +15,16 @@ It shows the same tool call through two paths — **straight at the gateway** (P
 git clone https://github.com/ping-sandbox/ai-gateway-client.git
 cd ai-gateway-client
 npm run install:all   # installs both server/ and web/
-npm start              # builds the UI, then starts the server on :3910
+npm start              # builds the UI, then starts the server on :6880
 ```
 
 Verify it's up:
 
 ```bash
-curl http://127.0.0.1:3910/health
+curl http://127.0.0.1:6880/health
 ```
 
-Then open http://127.0.0.1:3910. It defaults to the **Privilege** door on the public Ping AI Demo gateway — click **Sign in** and complete the OAuth flow in your browser (no client registration needed; the tool registers itself with the gateway on the fly via RFC 7591 Dynamic Client Registration). Switch to the **Direct** door to make the same call with no gateway in front — it defaults to the same demo's façade, which is a separate self-advertising, open-registration broker, so it also needs no setup.
+Then open http://127.0.0.1:6880. It defaults to the **Privilege** door on the public Ping AI Demo gateway — click **Sign in** and complete the OAuth flow in your browser (no client registration needed; the tool registers itself with the gateway on the fly via RFC 7591 Dynamic Client Registration). Switch to the **Direct** door to make the same call with no gateway in front — it defaults to the same demo's façade, which is a separate self-advertising, open-registration broker, so it also needs no setup.
 
 ## What it does
 
@@ -56,16 +56,16 @@ Switch between the two on the same call to see exactly what Privilege adds. See 
 
 ```bash
 npm run install:all
-npm run dev   # server on :3910 (API), Vite dev server on :5174 (UI)
+npm run dev   # server on :6880 (API), Vite dev server on :5174 (UI)
 ```
 
-The OAuth callback URL is derived from whichever host the browser used to reach the API, so DCR-based sign-in (the default, self-registering path) works the same in dev or prod. If you configure a **static** client id instead (no DCR), register both `http://127.0.0.1:3910/api/gateway/auth/callback` and `http://127.0.0.1:5174/api/gateway/auth/callback` as redirect URIs, or just test against the production build (`npm start`).
+The OAuth callback URL is derived from whichever host the browser used to reach the API, so DCR-based sign-in (the default, self-registering path) works the same in dev or prod. If you configure a **static** client id instead (no DCR), register both `http://127.0.0.1:6880/api/gateway/auth/callback` and `http://127.0.0.1:5174/api/gateway/auth/callback` as redirect URIs, or just test against the production build (`npm start`).
 
 ## Docker
 
 ```bash
 docker build -t ai-gateway-client .
-docker run -p 3910:3910 -v ai-gateway-client-data:/root/.ai-gateway-client ai-gateway-client
+docker run -p 6880:6880 -v ai-gateway-client-data:/root/.ai-gateway-client ai-gateway-client
 ```
 
 ## Not included

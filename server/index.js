@@ -14,7 +14,7 @@ const path = require('path');
 const express = require('express');
 const relay = require('./lib/relay');
 
-const PORT = parseInt(process.env.PORT || '3910', 10);
+const PORT = parseInt(process.env.PORT || '6880', 10);
 const app = express();
 
 app.use('/api/gateway', relay);

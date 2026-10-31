@@ -12,6 +12,6 @@ RUN npm ci --omit=dev || npm install --omit=dev
 COPY server/ ./
 COPY --from=webbuild /app/web/dist ../web/dist
 
-EXPOSE 3910
-ENV PORT=3910
+EXPOSE 6880
+ENV PORT=6880
 CMD ["node", "index.js"]
