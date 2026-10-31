@@ -1,4 +1,4 @@
-# Agent Privilege Client
+# Agent Privilege Client LAB
 
 Tier: Tester
 
@@ -12,7 +12,7 @@ It shows the same tool call through two paths — **straight at the gateway** (P
 **Prerequisites:** Node.js 22+ and npm. Docker is optional (a `Dockerfile` is included).
 
 ```bash
-git clone https://github.com/ping-sandbox/ai-gateway-client.git
+git clone https://github.com/ping-sandbox/ai-gateway-client-LAB.git
 cd ai-gateway-client
 npm run install:all   # installs both server/ and web/
 npm start              # builds the UI, then starts the server on :6880

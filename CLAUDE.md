@@ -1,4 +1,4 @@
-# Agent Privilege Client
+# Agent Privilege Client LAB
 
 A local, no-login test client for an OAuth-protected MCP gateway. Shows one tool call through the gateway and directly, so the policy difference is visible.
 
