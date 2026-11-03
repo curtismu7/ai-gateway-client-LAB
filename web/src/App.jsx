@@ -428,14 +428,14 @@ export default function App() {
       title="Agent Privilege Client"
       statusOn={state.oauth.authenticated}
       statusText={doorLabel}
-      actions={<ModeToggle mode={state.mode?.current || 'mock'} onChange={(m) => changeMode(m)} />}
+      actions={<ModeToggle mode={state.mode?.current === 'live' ? 'real' : 'mock'} realAvailable={state.mode?.realAvailable !== false} onChange={(m) => changeMode(m === 'real' ? 'live' : m)} />}
       left={left}
       middle={middle}
       right={right}
       banner={
         <>
           <p className={isMock ? 'banner banner--simulated' : 'banner banner--live'} role="status">
-            <strong>{isMock ? 'Simulated: ' : 'Live: '}</strong>{isMock ? SIMULATED_BANNER : LIVE_BANNER}
+            <strong>{isMock ? 'Simulated: ' : 'Real: '}</strong>{isMock ? SIMULATED_BANNER : LIVE_BANNER}
           </p>
           {modeConfirm && (
             <div className="page-banner">
