@@ -8,5 +8,8 @@
   "healthPath": "/api/health",
   "composeFile": "docker-compose.yml",
   "composeOverlays": [],
-  "notes": "Host-run: npm start (port 6880). Or: docker compose up --build -d (publishes 127.0.0.1:6880 only). Settings: ~/Development/.env."
+  "notes": "Host-run: npm start (port 6880). Or: docker compose up --build -d (publishes 127.0.0.1:6880 only). Settings: ~/Development/.env.",
+  "pingProducts": [
+    "privilege-gateway"
+  ]
 }
