@@ -1526,8 +1526,11 @@ const MODE_MESSAGES = {
 };
 
 router.get('/mode', (_req, res) => {
+  const realAvailable = Boolean(process.env.PRIVILEGE_GATEWAY_HOST || hosted.gatewayHost());
   res.set('Cache-Control', 'no-store').json({
     mode: mode.currentMode(),
+    source: mode.currentMode() === 'live' ? 'real' : 'mock', // rule 19
+    realAvailable, // rule 19
     liveConfirmed: mode.isLiveConfirmed(),
     simulated: mode.isMock(),
     netguard: netguard.statsSnapshot(),

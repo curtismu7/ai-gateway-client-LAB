@@ -45,6 +45,28 @@ app.get('/api/health', (_req, res) => {
   const state = mode.isMock() || process.env.PINGONE_ENVIRONMENT_ID ? 'ready' : 'needs-setup';
   res.set('Cache-Control', 'no-store').json({ schema: 'demo-health/1', at: new Date().toISOString(), state, runtime: mode.currentMode(), demo: DEMO });
 });
+// Rule 19 (owner, 2026-11-02): GET /api/info {source, realAvailable}; POST /api/mode {source} switches at runtime.
+// "real" maps onto this app's live mode (contacts the configured gateway); the older PUT /api/gateway/mode stays.
+const realAvailable = () => Boolean(process.env.PRIVILEGE_GATEWAY_HOST || require('./lib/hosted').gatewayHost());
+app.get('/api/info', (_req, res) => {
+  res.set('Cache-Control', 'no-store').json({
+    source: mode.currentMode() === 'live' ? 'real' : 'mock',
+    realAvailable: realAvailable(),
+  });
+});
+app.post('/api/mode', express.json({ limit: '2kb' }), (req, res) => {
+  const b = req.body;
+  if (!b || typeof b !== 'object' || Array.isArray(b) || Object.keys(b).length !== 1 || !['mock', 'real'].includes(b.source)) {
+    return res.status(400).json({ error: 'bad_body', message: 'body must be exactly {"source": "mock" or "real"}' });
+  }
+  if (b.source === 'real' && !realAvailable()) {
+    return res.status(409).json({ error: 'conflict', message: 'Real mode is not available: no gateway host is configured. Set PRIVILEGE_GATEWAY_HOST in the shared settings file.' });
+  }
+  const err = mode.setMode(b.source === 'real' ? 'live' : 'mock', { confirm: true });
+  if (err) return res.status(err === 'confirm_required' ? 409 : 400).json({ error: err, message: 'The switch was refused.' });
+  return res.json({ source: b.source });
+});
+
 app.post('/api/reset', (_req, res) => {
   relay.resetAll();
   res.json({ ok: true });
