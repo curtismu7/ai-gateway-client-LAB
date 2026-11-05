@@ -7,6 +7,7 @@ services:
     ports:
       - "127.0.0.1:${HOST_PORT:-6880}:6880"
     environment:
+      SHELF_URL: ${SHELF_URL:-}
       PORT: "6880"
       MODE: "mock"
     env_file:
