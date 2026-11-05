@@ -7,7 +7,7 @@ A local, no-login test client for an OAuth-protected [MCP](https://modelcontextp
 
 It shows the same tool call through two paths — **straight at the gateway** (Privilege mode, policy enforced) and **no gateway in the path at all** (Direct mode) — so you can see exactly what the gateway adds: the same call succeeding, being refused, or being logged, depending only on which door you went through. Both doors default to the public Ping AI Demo instance and work with zero setup; point either at your own MCP server/gateway when you're ready.
 
-Repo: https://github.com/ping-sandbox/ai-gateway-client-LAB
+Repo: https://github.com/curtismu7/ai-gateway-client-LAB
 
 ## Installation
 
@@ -16,7 +16,7 @@ Repo: https://github.com/ping-sandbox/ai-gateway-client-LAB
 ### Run from a clone
 
 ```bash
-git clone https://github.com/ping-sandbox/ai-gateway-client-LAB.git
+git clone https://github.com/curtismu7/ai-gateway-client-LAB.git
 cd ai-gateway-client-LAB
 npm install --prefix server
 npm install --prefix web
@@ -25,7 +25,7 @@ npm start                      # mock mode on http://127.0.0.1:6880
 ```
 
 ```bash
-git clone https://github.com/ping-sandbox/ai-gateway-client-LAB.git
+git clone https://github.com/curtismu7/ai-gateway-client-LAB.git
 cd ai-gateway-client
 npm run install:all   # installs both server/ and web/
 npm start              # builds the UI, then starts the server on :6880 (mock mode)
