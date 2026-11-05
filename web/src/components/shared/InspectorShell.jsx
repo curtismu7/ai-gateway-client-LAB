@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import useDividerDrag from '../../hooks/useDividerDrag';
 import { useThemeOptional } from '../../context/ThemeContext';
 import './InspectorShell.css';
+import ShelfLink from '../ShelfLink.jsx';
 
 const LEFT_COLLAPSED_KEY = 'inspector-shell-left-collapsed';
 const NARROW_QUERY = '(max-width: 900px)';
@@ -113,6 +114,7 @@ export default function InspectorShell({
         )}
         {statusText && <span className="inspector-shell-topbar__status">{statusText}</span>}
         <div className="inspector-shell-topbar__right">
+          <ShelfLink className="inspector-shell-topbar__theme-toggle" />
           {actions}
           {!hideThemeToggle && (
             <button
