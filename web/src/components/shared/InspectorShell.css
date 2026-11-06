@@ -40,6 +40,9 @@
 .inspector-shell-topbar__btn--active { background: var(--accent); border-color: var(--accent); color: var(--th-text-invert); }
 .inspector-shell-topbar__btn:disabled { opacity: 0.75; cursor: not-allowed; }
 .inspector-shell-topbar__theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--th-text);
   font-size: var(--font-size-2xs);
   padding: 5px 12px;
@@ -49,6 +52,7 @@
   cursor: pointer;
   white-space: nowrap;
 }
+.inspector-shell-topbar__theme-toggle select { min-height: 32px; padding: 4px 8px; }
 .inspector-shell-topbar__theme-toggle:hover { color: var(--th-text); background: var(--th-bg-hover); }
 
 /* Three-column grid */

@@ -1,55 +1,44 @@
-// context/ThemeContext.jsx — app-wide dark mode, written to `data-theme` on
-// the document root. Adapted from the banking demo's version (same shape),
-// just its own localStorage key.
+// context/ThemeContext.jsx — app-wide theme, written to `data-theme` on
+// the document root. The picker only sets data-theme; the shared stylesheet
+// does the rest ("auto" follows the system setting).
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 
 const ThemeContext = createContext(null);
 
-export const THEME_STORAGE_KEY = 'ai_gateway_client_dark_mode';
+export const THEME_STORAGE_KEY = 'ai_gateway_client.theme';
+const THEMES = ['auto', 'light', 'dark'];
 
-// null = no choice yet, so follow the system setting (prefers-color-scheme).
-function readStoredDarkMode() {
+function readStoredTheme() {
   try {
     const v = localStorage.getItem(THEME_STORAGE_KEY);
-    return v === null ? null : v === 'true';
+    return THEMES.includes(v) ? v : 'auto';
   } catch {
-    return null;
+    return 'auto';
   }
 }
 
-function systemPrefersDark() {
-  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches === true;
-}
-
 export function ThemeProvider({ children }) {
-  const [choice, setChoice] = useState(readStoredDarkMode);
-  const darkMode = choice ?? systemPrefersDark();
+  const [theme, setTheme] = useState(readStoredTheme);
 
   useEffect(() => {
     const root = document.documentElement;
-    if (choice === null) {
-      // No explicit choice: let standalone-ui.css follow the system setting.
-      root.removeAttribute('data-theme');
-      return;
-    }
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, String(choice));
+      if (theme === 'auto') localStorage.removeItem(THEME_STORAGE_KEY);
+      else localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch {
       // Private mode / storage disabled — the attribute below still applies
       // for this session, the choice just doesn't survive a reload.
     }
-    root.setAttribute('data-theme', choice ? 'dark' : 'light');
-  }, [choice]);
+    if (theme === 'auto') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', theme);
+  }, [theme]);
 
-  const setDarkMode = useCallback((v) => setChoice(v), []);
-  const toggleDarkMode = useCallback(() => setChoice(!darkMode), [darkMode]);
-
-  const value = useMemo(() => ({ darkMode, setDarkMode, toggleDarkMode }), [darkMode, toggleDarkMode]);
+  const value = useMemo(() => ({ theme, setTheme }), [theme]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
-const INERT_THEME = Object.freeze({ darkMode: false, setDarkMode: () => {}, toggleDarkMode: () => {} });
+const INERT_THEME = Object.freeze({ theme: 'auto', setTheme: () => {} });
 
 export function useThemeOptional() {
   return useContext(ThemeContext) || INERT_THEME;

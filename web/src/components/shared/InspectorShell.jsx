@@ -75,7 +75,7 @@ export default function InspectorShell({
     storageKey: 'inspector-shell-middle-width',
   });
   const [leftCollapsed, setLeftCollapsed] = useState(loadLeftCollapsed);
-  const { darkMode, toggleDarkMode } = useThemeOptional();
+  const { theme, setTheme } = useThemeOptional();
   const isNarrow = useIsNarrow();
 
   const toggleLeftCollapsed = useCallback(() => {
@@ -117,15 +117,18 @@ export default function InspectorShell({
           <ShelfLink className="inspector-shell-topbar__theme-toggle" />
           {actions}
           {!hideThemeToggle && (
-            <button
-              type="button"
-              onClick={toggleDarkMode}
-              className="inspector-shell-topbar__theme-toggle"
-              title="Switch this page between light and dark"
-              aria-pressed={darkMode}
-            >
-              {darkMode ? '☀️ Light mode' : '🌙 Dark mode'}
-            </button>
+            <label className="inspector-shell-topbar__theme-toggle">
+              Theme
+              <select
+                value={theme}
+                onChange={(e) => setTheme(e.target.value)}
+                title="Switch this page between auto, light and dark"
+              >
+                <option value="auto">Auto</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
           )}
         </div>
       </div>
