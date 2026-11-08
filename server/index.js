@@ -14,6 +14,9 @@ require('dotenv').config({
 
 const path = require('path');
 const express = require('express');
+const { allowedHostsFrom, makeGuard } = require('./lib/safety');
+// Read before anything else loads or listens: a bad name must leave nothing running.
+const allowedHosts = allowedHostsFrom(process.env);
 const relay = require('./lib/relay');
 const mode = require('./lib/mode');
 
@@ -22,18 +25,7 @@ const PORT = parseInt(process.env.PORT || '6880', 10);
 const HOST = process.env.HOST || '127.0.0.1';
 const app = express();
 
-// Host check (DNS-rebinding guard) and same-origin writes.
-const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
-app.use((req, res, next) => {
-  const hostname = String(req.headers.host || '').replace(/:\d+$/, '');
-  if (!LOOPBACK_HOSTNAMES.has(hostname)) return res.status(421).json({ error: 'bad_host' });
-  if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin) {
-    let origin = null;
-    try { origin = new URL(req.headers.origin).host; } catch { /* keep null */ }
-    if (origin !== req.headers.host) return res.status(403).json({ error: 'cross_origin_write' });
-  }
-  next();
-});
+app.use(makeGuard(allowedHosts));
 
 app.use('/api/gateway', relay);
 
