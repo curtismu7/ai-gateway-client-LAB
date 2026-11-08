@@ -16,6 +16,7 @@ const path = require('path');
 const express = require('express');
 const relay = require('./lib/relay');
 const mode = require('./lib/mode');
+const { mountShelfRoute } = require('./lib/shelfLink');
 
 const PORT = parseInt(process.env.PORT || '6880', 10);
 // Loopback by default. The Docker image sets HOST=0.0.0.0 inside the container, and compose publishes 127.0.0.1 only.
@@ -34,6 +35,9 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// The header Shelf button: launcher URL from env SHELF_URL. Registered before the static fallback and independent of any web build.
+mountShelfRoute(app);
 
 app.use('/api/gateway', relay);
 
