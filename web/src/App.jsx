@@ -446,6 +446,7 @@ export default function App() {
           )}
           <div className="source-bar">
             <select
+              aria-label="MCP server preset"
               value={`${state.gatewayMode}::${state.config.mcpUrl || ''}`}
               onChange={(e) => {
                 const [mode, url] = e.target.value.split('::');
@@ -459,7 +460,7 @@ export default function App() {
                 <option value={`${state.gatewayMode}::${doorUrlInput}`}>Custom — {doorUrlInput}</option>
               )}
             </select>
-            <input className="wide" value={doorUrlInput} onChange={(e) => setDoorUrlInput(e.target.value)} placeholder="MCP server URL" />
+            <input className="wide" value={doorUrlInput} onChange={(e) => setDoorUrlInput(e.target.value)} placeholder="MCP server URL" aria-label="MCP server URL" />
             {doorUrlInput !== state.config.mcpUrl && (
               <button type="button" className="btn" onClick={() => switchMode(state.gatewayMode, doorUrlInput)}>Use this URL</button>
             )}
@@ -484,7 +485,7 @@ export default function App() {
           />
           {showConsoleForm && (
             <div className="add-server-form">
-              <input className="wide" type="password" placeholder="Paste the console's auth_token cookie value" value={consoleToken} onChange={(e) => setConsoleToken(e.target.value)} />
+              <input className="wide" type="password" placeholder="Paste the console's auth_token cookie value" value={consoleToken} onChange={(e) => setConsoleToken(e.target.value)} aria-label="Privilege console auth_token cookie value" />
               <button type="button" className="btn btn--primary" onClick={connectConsole}>Connect</button>
               <button type="button" className="btn" onClick={() => setShowConsoleForm(false)}>Cancel</button>
             </div>
