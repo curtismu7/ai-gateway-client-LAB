@@ -152,9 +152,9 @@ input.wide, select.wide { min-width: 260px; }
   border-color: var(--primary-edge);
 }
 
-/* The generic .btn:hover would turn the primary button pale grey under white text. Keep it red. */
+/* The generic .btn:hover would turn the primary button pale grey under white text. Keep it on the gradient. */
 .btn--primary:hover {
-  background: var(--accent-deep);
+  background: var(--accent-gradient);
 }
 
 /* A disabled primary keeps its label readable (matches the shared stylesheet). */
