@@ -183,3 +183,6 @@ input.wide, select.wide { min-width: 260px; }
     width: 100%;
   }
 }
+
+.talk { max-width: 52rem; }
+.talk__step { padding-left: 8px; border-left: 3px solid var(--accent); }

@@ -5,6 +5,7 @@ import ModeToggle from './components/ModeToggle';
 import TopMenu from './top-menu/TopMenu';
 import { useThemeOptional } from './context/ThemeContext';
 import FlowDiagram from './components/FlowDiagram';
+import TalkTrackPanel from './components/TalkTrackPanel';
 import CatalogPanel, { CATALOG_TABS, itemId } from './components/CatalogPanel';
 import CatalogBar from './components/CatalogBar';
 import { HiddenNotice, PromptDetail, ResourceDetail, TemplateDetail, ToolDetails, ToolSchema } from './components/ItemDetail';
@@ -16,6 +17,7 @@ const OUTPUT_TABS = [
   { key: 'request', label: 'Request' },
   { key: 'log', label: 'Relay log' },
   { key: 'flow', label: 'Flow' },
+  { key: 'talk', label: 'Talk track' },
 ];
 
 const SIMULATED_BANNER = 'Mock mode. Sign-in, the MCP gateway, its tool list and every tool result run inside this app process. No sign-in, gateway or tool traffic leaves this machine (the page only fetches its fonts from Google Fonts). Tokens and client ids shown are mock-issued and labelled as mock.';
@@ -478,7 +480,9 @@ export default function App() {
   const right = (
     <div className="tool-output">
       <InspectorTabs tabs={OUTPUT_TABS} activeKey={outputTab} onChange={setOutputTab} />
-      {outputTab === 'flow' ? (
+      {outputTab === 'talk' ? (
+        <TalkTrackPanel />
+      ) : outputTab === 'flow' ? (
         <FlowDiagram name="auth-code-pkce" />
       ) : outputTab === 'log' ? (
         <div className="relay-log">
@@ -510,6 +514,7 @@ export default function App() {
         <TopMenu
           mode={{ value: state.mode?.current === 'live' ? 'real' : 'mock', realAvailable: state.mode?.realAvailable !== false, onChange: (m) => changeMode(m === 'real' ? 'live' : m) }}
           theme={{ value: theme, onChange: setTheme }}
+          talkTrack={{ active: outputTab === 'talk', onToggle: () => setOutputTab('talk') }}
           help={{ href: 'https://github.com/curtismu7/ai-gateway-client-LAB#readme' }}
           version={state.mode?.version || null}
         />
