@@ -1527,8 +1527,11 @@ const MODE_MESSAGES = {
 
 router.get('/mode', (_req, res) => {
   const realAvailable = Boolean(process.env.PRIVILEGE_GATEWAY_HOST || hosted.gatewayHost());
+  let version = null;
+  try { version = require('../../package.json').version || null; } catch { /* no package.json here */ }
   res.set('Cache-Control', 'no-store').json({
     mode: mode.currentMode(),
+    version, // the TopMenu About button
     source: mode.currentMode() === 'live' ? 'real' : 'mock', // rule 19
     realAvailable, // rule 19
     liveConfirmed: mode.isLiveConfirmed(),

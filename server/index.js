@@ -46,6 +46,7 @@ app.get('/api/health', (_req, res) => {
 const realAvailable = () => Boolean(process.env.PRIVILEGE_GATEWAY_HOST || require('./lib/hosted').gatewayHost());
 app.get('/api/info', (_req, res) => {
   res.set('Cache-Control', 'no-store').json({
+    version: DEMO.version || null,
     source: mode.currentMode() === 'live' ? 'real' : 'mock',
     realAvailable: realAvailable(),
   });

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import InspectorShell from './components/shared/InspectorShell';
 import InspectorTabs from './components/shared/InspectorTabs';
 import ModeToggle from './components/ModeToggle';
+import TopMenu from './top-menu/TopMenu';
+import { useThemeOptional } from './context/ThemeContext';
 import FlowDiagram from './components/FlowDiagram';
 import CatalogPanel, { CATALOG_TABS, itemId } from './components/CatalogPanel';
 import CatalogBar from './components/CatalogBar';
@@ -50,6 +52,7 @@ export default function App() {
   const [consoleToken, setConsoleToken] = useState('');
   const [probeResults, setProbeResults] = useState(null);
   const [modeConfirm, setModeConfirm] = useState(false);
+  const { theme, setTheme } = useThemeOptional();
 
   // What the server offers on the active door, loaded from /catalog.
   const [catalog, setCatalog] = useState(null);
@@ -503,7 +506,14 @@ export default function App() {
       title="Agent Privilege Client"
       statusOn={state.oauth.authenticated}
       statusText={doorLabel}
-      actions={<ModeToggle mode={state.mode?.current === 'live' ? 'real' : 'mock'} realAvailable={state.mode?.realAvailable !== false} onChange={(m) => changeMode(m === 'real' ? 'live' : m)} />}
+      actions={
+        <TopMenu
+          mode={{ value: state.mode?.current === 'live' ? 'real' : 'mock', realAvailable: state.mode?.realAvailable !== false, onChange: (m) => changeMode(m === 'real' ? 'live' : m) }}
+          theme={{ value: theme, onChange: setTheme }}
+          help={{ href: 'https://github.com/curtismu7/ai-gateway-client-LAB#readme' }}
+          version={state.mode?.version || null}
+        />
+      }
       left={left}
       middle={middle}
       right={right}

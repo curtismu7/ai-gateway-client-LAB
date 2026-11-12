@@ -22,6 +22,7 @@
 
 /* Top bar */
 .inspector-shell-topbar {
+  position: relative; /* the TopMenu sign-in slot centers against this bar */
   background: var(--th-bg-inset);
   border-bottom: 1px solid var(--th-border);
   padding: 10px 20px;
