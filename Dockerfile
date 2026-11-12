@@ -3,6 +3,7 @@ WORKDIR /app/web
 COPY web/package.json web/package-lock.json* ./
 RUN npm install
 COPY web/ ./
+COPY docs ../docs
 RUN npm run build
 
 # The server resolves ../package.json, ../diagrams and ../web/dist, so the image keeps the repo layout.
