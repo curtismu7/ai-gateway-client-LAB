@@ -173,6 +173,14 @@ export default function App() {
     clearCatalog();
   }, [loadState, clearCatalog]);
 
+  // Reset (rule 3): the server drops every relay session and its OAuth state; the shell reloads what it shows.
+  const reset = useCallback(async () => {
+    const { ok, data } = await api.post('/api/reset');
+    setBanner(ok ? { message: 'Reset: the relay is cleared — sessions, tokens and the relay log start over.' } : { message: data?.message || 'Reset failed.' });
+    await loadState();
+    clearCatalog();
+  }, [loadState, clearCatalog]);
+
   // The catalog item the user picked, and the tool the existing argument form is built from.
   const selectedItem = useMemo(() => {
     if (!selected || !catalog) return null;
@@ -517,6 +525,7 @@ export default function App() {
           talkTrack={{ active: outputTab === 'talk', onToggle: () => setOutputTab('talk') }}
           help={{ href: 'https://github.com/curtismu7/ai-gateway-client-LAB#readme' }}
           version={state.mode?.version || null}
+          onReset={reset}
         />
       }
       left={left}
