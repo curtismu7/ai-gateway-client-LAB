@@ -283,7 +283,7 @@ export default function FlowDiagram({ name }) {
         {diagram.lede && <p className="flow-panel__lede">{diagram.lede}</p>}
       </div>
       <div className="flow-panel__controls">
-        <button type="button" className="btn btn--primary" onClick={simulate}>{playing ? 'Pause' : 'Simulate'}</button>
+        <button type="button" className="btn" onClick={simulate}>{playing ? 'Pause' : 'Simulate'}</button>
         <button type="button" className="btn" onClick={reset}>Reset</button>
         <label className="flow-panel__speed">
           <span>Speed</span>

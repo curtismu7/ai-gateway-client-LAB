@@ -133,7 +133,7 @@ export default function InspectorShell({
         </div>
       </div>
       {banner}
-      <div
+      <main
         className={
           (fullHeight === 'fill'
             ? 'inspector-shell-grid inspector-shell-grid--fill'
@@ -180,7 +180,7 @@ export default function InspectorShell({
           />
         )}
         <div className="inspector-shell-col-right">{right}</div>
-      </div>
+      </main>
     </div>
   );
 }

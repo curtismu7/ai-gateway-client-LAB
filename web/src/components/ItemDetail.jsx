@@ -119,7 +119,7 @@ export function ResourceDetail({ resource, onResponse }) {
         {typeof resource.size === 'number' && (<><dt>Size</dt><dd>{resource.size} bytes</dd></>)}
       </dl>
       {resource.description && <PlainText value={resource.description} />}
-      <button type="button" className="primary item-detail__action" onClick={read} disabled={result?.status === 'loading'}>Read</button>
+      <button type="button" className="item-detail__action" onClick={read} disabled={result?.status === 'loading'}>Read</button>
       <Contents result={result} />
     </div>
   );
@@ -151,7 +151,7 @@ export function TemplateDetail({ template, onResponse }) {
         </label>
       ))}
       <p className="catalog-note">URI: <span className="item-detail__mono">{uri}</span></p>
-      <button type="button" className="primary item-detail__action" onClick={read} disabled={!ready || result?.status === 'loading'}>Read</button>
+      <button type="button" className="item-detail__action" onClick={read} disabled={!ready || result?.status === 'loading'}>Read</button>
       <Contents result={result} />
     </div>
   );
@@ -182,7 +182,7 @@ export function PromptDetail({ prompt, onResponse }) {
           <input value={values[a.name] ?? ''} placeholder={a.description || ''} onChange={(e) => setValues((v) => ({ ...v, [a.name]: e.target.value }))} />
         </label>
       ))}
-      <button type="button" className="primary item-detail__action" onClick={get} disabled={!ready || result?.status === 'loading'}>Get prompt</button>
+      <button type="button" className="item-detail__action" onClick={get} disabled={!ready || result?.status === 'loading'}>Get prompt</button>
       {result?.status === 'loading' && <p className="catalog-note" role="status">Getting prompt...</p>}
       {result?.status === 'error' && <p className="item-detail__error" role="alert">{result.message}</p>}
       {result?.status === 'ok' && (

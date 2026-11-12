@@ -249,9 +249,10 @@ export default function App() {
   }, [state]);
 
   const changeMode = useCallback(async (next, confirm = false) => {
-    const { ok, data } = await api.put('/api/gateway/mode', { mode: next, confirm });
+    // Rule 19: the shared /api/mode endpoint (the older PUT /api/gateway/mode stays for the confirm flow).
+    const { ok, data } = await api.post('/api/mode', { source: next === 'real' || next === 'live' ? 'real' : 'mock' });
     if (!ok) {
-      if (data?.error === 'confirm_required') { setModeConfirm(true); return; }
+      if (data?.error === 'conflict' || data?.error === 'confirm_required') { setModeConfirm(true); return; }
       setBanner({ message: data?.message || 'Mode change refused.' });
       return;
     }
@@ -318,6 +319,80 @@ export default function App() {
   }
   const directPreset = (state.presets || []).find((p) => p.mode === 'direct');
 
+  const pageBanner = (
+    <>
+  <p className={isMock ? 'banner banner--simulated' : 'banner banner--live'} role="status">
+    <strong>{isMock ? 'Simulated: ' : 'Real: '}</strong>{isMock ? SIMULATED_BANNER : LIVE_BANNER}
+  </p>
+  {modeConfirm && (
+    <div className="page-banner">
+      Switch to Live? It contacts the gateway URL you enter and the sign-in server it advertises, with real sign-in.
+      <button type="button" className="btn" onClick={() => changeMode('live', true)}>Switch to live</button>
+      <button type="button" className="btn" onClick={() => setModeConfirm(false)}>Stay in mock</button>
+    </div>
+  )}
+  <div className="source-bar">
+    <select
+      aria-label="MCP server preset"
+      value={`${state.gatewayMode}::${state.config.mcpUrl || ''}`}
+      onChange={(e) => {
+        const [mode, url] = e.target.value.split('::');
+        switchMode(mode, url);
+      }}
+    >
+      {(state.presets || []).map((p) => (
+        <option key={`${p.mode}::${p.url}`} value={`${p.mode}::${p.url}`}>{p.label}</option>
+      ))}
+      {!(state.presets || []).some((p) => p.url === doorUrlInput) && doorUrlInput && (
+        <option value={`${state.gatewayMode}::${doorUrlInput}`}>Custom — {doorUrlInput}</option>
+      )}
+    </select>
+    <input className="wide" value={doorUrlInput} onChange={(e) => setDoorUrlInput(e.target.value)} placeholder="MCP server URL" aria-label="MCP server URL" />
+    {doorUrlInput !== state.config.mcpUrl && (
+      <button type="button" className="btn" onClick={() => switchMode(state.gatewayMode, doorUrlInput)}>Use this URL</button>
+    )}
+    {state.oauth.authenticated ? (
+      <button type="button" className="btn btn--danger" onClick={signOut}>Sign out</button>
+    ) : (
+      <button type="button" className="btn" onClick={signIn}>Sign in</button>
+    )}
+    <button type="button" className="btn" onClick={() => loadCatalog(gatewayMode)} disabled={!state.oauth.authenticated || catalogLoading}>Refresh</button>
+    <button type="button" className="btn" onClick={runProbe} disabled={!state.oauth.authenticated}>Probe other doors</button>
+    {!isMock && <button type="button" className="btn" onClick={() => setShowConsoleForm((v) => !v)}>Connect Privilege console</button>}
+  </div>
+  <CatalogBar
+    mockSamples={mockSamples}
+    activeSample={state.mockSample}
+    onSample={changeSample}
+    busy={sampleBusy}
+    doorLabel={doorName}
+    summary={summary}
+    otherLabel={otherName}
+    otherSummary={otherSummary}
+  />
+  {showConsoleForm && (
+    <div className="add-server-form">
+      <input className="wide" type="password" placeholder="Paste the console's auth_token cookie value" value={consoleToken} onChange={(e) => setConsoleToken(e.target.value)} aria-label="Privilege console auth_token cookie value" />
+      <button type="button" className="btn" onClick={connectConsole}>Connect</button>
+      <button type="button" className="btn" onClick={() => setShowConsoleForm(false)}>Cancel</button>
+    </div>
+  )}
+  {probeResults && (
+    <div className="page-banner">
+      Probe: {probeResults.map((r) => `${new URL(r.url).pathname.split('/')[1]} → ${r.ok ? `${r.tools} tools` : `denied (${r.status})`}`).join(' · ')}
+      <button type="button" className="btn" onClick={() => setProbeResults(null)}>Dismiss</button>
+    </div>
+  )}
+  {banner && (
+    <div className="page-banner">
+      {banner.message}
+      <button type="button" className="btn" onClick={() => setBanner(null)}>Dismiss</button>
+    </div>
+  )}
+
+    </>
+  );
+
   const left = (
     <CatalogPanel
       tab={tab}
@@ -373,7 +448,7 @@ export default function App() {
               <input value={paramValues[key] ?? ''} placeholder={schema?.description || ''} onChange={(e) => setParamValues((p) => ({ ...p, [key]: e.target.value }))} />
             </label>
           ))}
-          <button type="button" className="btn btn--primary" onClick={handleExecute} disabled={busy}>{busy ? 'Running…' : 'Execute'}</button>
+          <button type="button" className="btn" onClick={handleExecute} disabled={busy}>{busy ? 'Running…' : 'Execute'}</button>
           <ToolSchema tool={selectedItem} />
         </div>
       );
@@ -432,78 +507,7 @@ export default function App() {
       left={left}
       middle={middle}
       right={right}
-      banner={
-        <>
-          <p className={isMock ? 'banner banner--simulated' : 'banner banner--live'} role="status">
-            <strong>{isMock ? 'Simulated: ' : 'Real: '}</strong>{isMock ? SIMULATED_BANNER : LIVE_BANNER}
-          </p>
-          {modeConfirm && (
-            <div className="page-banner">
-              Switch to Live? It contacts the gateway URL you enter and the sign-in server it advertises, with real sign-in.
-              <button type="button" className="btn btn--primary" onClick={() => changeMode('live', true)}>Switch to live</button>
-              <button type="button" className="btn" onClick={() => setModeConfirm(false)}>Stay in mock</button>
-            </div>
-          )}
-          <div className="source-bar">
-            <select
-              aria-label="MCP server preset"
-              value={`${state.gatewayMode}::${state.config.mcpUrl || ''}`}
-              onChange={(e) => {
-                const [mode, url] = e.target.value.split('::');
-                switchMode(mode, url);
-              }}
-            >
-              {(state.presets || []).map((p) => (
-                <option key={`${p.mode}::${p.url}`} value={`${p.mode}::${p.url}`}>{p.label}</option>
-              ))}
-              {!(state.presets || []).some((p) => p.url === doorUrlInput) && doorUrlInput && (
-                <option value={`${state.gatewayMode}::${doorUrlInput}`}>Custom — {doorUrlInput}</option>
-              )}
-            </select>
-            <input className="wide" value={doorUrlInput} onChange={(e) => setDoorUrlInput(e.target.value)} placeholder="MCP server URL" aria-label="MCP server URL" />
-            {doorUrlInput !== state.config.mcpUrl && (
-              <button type="button" className="btn" onClick={() => switchMode(state.gatewayMode, doorUrlInput)}>Use this URL</button>
-            )}
-            {state.oauth.authenticated ? (
-              <button type="button" className="btn btn--danger" onClick={signOut}>Sign out</button>
-            ) : (
-              <button type="button" className="btn btn--primary" onClick={signIn}>Sign in</button>
-            )}
-            <button type="button" className="btn" onClick={() => loadCatalog(gatewayMode)} disabled={!state.oauth.authenticated || catalogLoading}>Refresh</button>
-            <button type="button" className="btn" onClick={runProbe} disabled={!state.oauth.authenticated}>Probe other doors</button>
-            {!isMock && <button type="button" className="btn" onClick={() => setShowConsoleForm((v) => !v)}>Connect Privilege console</button>}
-          </div>
-          <CatalogBar
-            mockSamples={mockSamples}
-            activeSample={state.mockSample}
-            onSample={changeSample}
-            busy={sampleBusy}
-            doorLabel={doorName}
-            summary={summary}
-            otherLabel={otherName}
-            otherSummary={otherSummary}
-          />
-          {showConsoleForm && (
-            <div className="add-server-form">
-              <input className="wide" type="password" placeholder="Paste the console's auth_token cookie value" value={consoleToken} onChange={(e) => setConsoleToken(e.target.value)} aria-label="Privilege console auth_token cookie value" />
-              <button type="button" className="btn btn--primary" onClick={connectConsole}>Connect</button>
-              <button type="button" className="btn" onClick={() => setShowConsoleForm(false)}>Cancel</button>
-            </div>
-          )}
-          {probeResults && (
-            <div className="page-banner">
-              Probe: {probeResults.map((r) => `${new URL(r.url).pathname.split('/')[1]} → ${r.ok ? `${r.tools} tools` : `denied (${r.status})`}`).join(' · ')}
-              <button type="button" className="btn" onClick={() => setProbeResults(null)}>Dismiss</button>
-            </div>
-          )}
-          {banner && (
-            <div className="page-banner">
-              {banner.message}
-              <button type="button" className="btn" onClick={() => setBanner(null)}>Dismiss</button>
-            </div>
-          )}
-        </>
-      }
+      banner={pageBanner}
     />
   );
 }
