@@ -23,6 +23,7 @@ jobs:
       - name: Install and test
         run: |
           npm install --prefix server
+          npm install --prefix web
           npm test --prefix server
           npm test --prefix web
       # The vendored shared stylesheet must match the hash pinned when it was last re-vendored.
