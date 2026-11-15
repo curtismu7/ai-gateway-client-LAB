@@ -25,6 +25,7 @@ test.before(async () => {
   vite = await createServer({
     root: web, configFile: false, logLevel: 'silent', appType: 'custom', server: { middlewareMode: true, hmr: false, watch: null },
     plugins: [react()],
+    optimizeDeps: { noDiscovery: true, include: [] }, // load two modules, not the app: no dependency pre-bundling (it would scan index.html and the aliased react)
     resolve: { alias: [{ find: /^react$/, replacement: join(here, 'helpers', 'hooks-shim.js') }] },
   });
   harness = (await vite.ssrLoadModule('/test/helpers/hooks-shim.js')).harness;
