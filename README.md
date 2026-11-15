@@ -136,3 +136,13 @@ If the port is taken:
 2. If it is an old copy of this app, stop that process: `kill <PID>`
 3. If it is something else, stop it, or start this app on another port: `PORT=6881 npm start`
 4. Do not use 8080, 5173, 3000, 4000, 4400, 4510, 4600-4601, 18080, 19080 or 19090. Other demos and tools use them.
+
+---
+
+## Real mode: through the PingOne Privilege gateway
+
+**Privilege objects this lab uses:** OAuth PKCE + dynamic client registration against the gateway own authorization server, then one tool call through the door and the same call direct, so the policy difference is visible (`HOSTED_MCPGW_URL` or `PRIVILEGE_GATEWAY_HOST`)
+
+Settings keys: `GATEWAY_GW_URL`, `GATEWAY_GW_APPS`, at least one `GATEWAY_GW_KEY_<NAME>`
+in the shared settings file (`~/Development/.env`, or the file `STANDALONE_ENV` names). The key
+is write-only: it is scrubbed from every message, error and log line.
