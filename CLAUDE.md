@@ -7,6 +7,7 @@ A local, no-login test client for an OAuth-protected MCP gateway. Shows one tool
 ```sh
 npm install --prefix server
 npm test --prefix server
+npm install --prefix web
 npm test --prefix web
 ```
 

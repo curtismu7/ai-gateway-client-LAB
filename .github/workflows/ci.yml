@@ -24,6 +24,7 @@ jobs:
         run: |
           npm install --prefix server
           npm test --prefix server
+          npm ci --prefix web
           npm test --prefix web
       # The vendored shared stylesheet must match the hash pinned when it was last re-vendored.
       - run: bash scripts/check-ui-standard.sh

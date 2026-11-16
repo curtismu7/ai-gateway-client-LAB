@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { api } from '../lib/api';
-import { fillTemplate, formatContent, inspectText, safeJson, templateVariables, toolBadges } from '../lib/catalog';
+import { fillTemplate, formatContent, inspectText, templateVariables, toolBadges } from '../lib/catalog';
 import { Badge, PlainText } from './CatalogParts';
+import Json from './JsonPane';
 import './Catalog.css';
 
 function failureText(data, fallback) {
@@ -9,6 +10,9 @@ function failureText(data, fallback) {
   const message = data?.error || fallback;
   return /\b403\b/.test(message) ? `Denied by gateway policy. ${message}` : message;
 }
+
+// The tool hints a reader checks first (read-only or destructive), stood out in the annotations pane.
+const ANNOTATION_HOT = ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'];
 
 /** Shown for anything the gateway reported as hidden by policy on this door. */
 export function HiddenNotice({ kind, item, onUseDirect, canUseDirect }) {
@@ -57,9 +61,9 @@ export function ToolSchema({ tool }) {
         </ul>
       )}
       <p className="item-detail__label">Annotations</p>
-      <pre className="item-detail__json">{annotations ? safeJson(annotations) : 'None sent by the server.'}</pre>
+      {annotations ? <Json value={annotations} label="Annotations" testId="tool-annotations" hot={ANNOTATION_HOT} /> : <p className="catalog-note">None sent by the server.</p>}
       <p className="item-detail__label">inputSchema</p>
-      <pre className="item-detail__json">{safeJson(schema)}</pre>
+      <Json value={schema} label="inputSchema" testId="tool-schema" hot={['required']} />
     </details>
   );
 }
@@ -80,7 +84,9 @@ function Contents({ result }) {
         return (
           <div key={i} className="item-detail__content">
             <p className="item-detail__label">{c.uri} <span className="item-detail__format">{c.mimeType || 'no type'}, shown as {shown.format === 'json' ? 'pretty-printed JSON' : 'text'}</span></p>
-            <pre className="item-detail__body" data-format={shown.format}>{inspectText(shown.text).marked}</pre>
+            {shown.format === 'json'
+              ? <Json value={shown.text} label={`Content of ${c.uri}`} testId="resource-content" />
+              : <pre className="item-detail__body" data-format={shown.format}>{inspectText(shown.text).marked}</pre>}
             {shown.note && <p className="catalog-note">{shown.note}</p>}
             {(info.invisible.length > 0 || info.htmlLike) && (
               <p className="catalog-note">
@@ -191,7 +197,9 @@ export function PromptDetail({ prompt, onResponse }) {
           {result.messages.map((m, i) => (
             <div key={i} className="item-detail__content">
               <p className="item-detail__label">{m.role}</p>
-              <pre className="item-detail__body">{m.content?.type === 'text' ? inspectText(m.content.text).marked : safeJson(m.content)}</pre>
+              {m.content?.type === 'text'
+                ? <pre className="item-detail__body">{inspectText(m.content.text).marked}</pre>
+                : <Json value={m.content} label={`${m.role} message`} testId="prompt-content" hot={['type', 'uri', 'mimeType']} />}
             </div>
           ))}
         </div>

@@ -8,6 +8,8 @@ import react from '@vitejs/plugin-react';
 // which the default http-proxy handles fine for EventSource.
 export default defineConfig({
   plugins: [react()],
+  // vitest: the component tests under src (the node:test files in test/ run with node --test).
+  test: { environment: 'jsdom', include: ['src/**/*.test.jsx'] },
   server: {
     port: 5174,
     proxy: {
