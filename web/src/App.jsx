@@ -10,7 +10,8 @@ import TalkTrackPanel from './components/TalkTrackPanel';
 import CatalogPanel, { CATALOG_TABS, itemId } from './components/CatalogPanel';
 import CatalogBar from './components/CatalogBar';
 import { HiddenNotice, PromptDetail, ResourceDetail, TemplateDetail, ToolDetails, ToolSchema } from './components/ItemDetail';
-import { fromDoorCounts, safeJson, summarise } from './lib/catalog';
+import { fromDoorCounts, summarise } from './lib/catalog';
+import Json from './components/JsonPane';
 import { api } from './lib/api';
 
 const OUTPUT_TABS = [
@@ -20,6 +21,11 @@ const OUTPUT_TABS = [
   { key: 'flow', label: 'Flow' },
   { key: 'talk', label: 'Talk track' },
 ];
+
+// The parts of each JSON pane a reader looks for first (JsonPane `hot`): what was called and whether it failed,
+// and for a relay event which step it was and which way it went.
+const RPC_HOT = ['method', 'name', 'uri', 'isError', 'code', 'message'];
+const RELAY_HOT = ['phase', 'direction', 'method', 'status'];
 
 const SIMULATED_BANNER = 'Mock mode. Sign-in, the MCP gateway, its tool list and every tool result run inside this app process. No sign-in, gateway or tool traffic leaves this machine (the page only fetches its fonts from Google Fonts). Tokens and client ids shown are mock-issued and labelled as mock.';
 const LIVE_BANNER = 'Requests go to the gateway URL you enter and to the sign-in server that gateway advertises. Sign-in and tool calls are real.';
@@ -499,12 +505,14 @@ export default function App() {
           {events.slice().reverse().map((ev, i) => (
             <div key={i} className={`relay-log__row relay-log__row--${ev.type}`}>
               <span className="relay-log__type">{ev.type}{ev.phase ? `:${ev.phase}` : ''}</span>
-              <pre>{safeJson(ev)}</pre>
+              <Json value={ev} label={`Relay event ${ev.type}`} hot={RELAY_HOT} />
             </div>
           ))}
         </div>
       ) : (
-        <pre className="tool-output__json">{outputValue === null || outputValue === undefined ? '—' : safeJson(outputValue)}</pre>
+        outputValue === null || outputValue === undefined
+          ? <pre className="tool-output__json">—</pre>
+          : <Json value={outputValue} label={outputTab === 'request' ? 'Request' : 'Response'} testId="tool-output" hot={RPC_HOT} />
       )}
       {lastTiming && (outputTab === 'response' || outputTab === 'request') && (
         <div className={lastTiming.error ? 'tool-output__timing tool-output__timing--error' : 'tool-output__timing'}>

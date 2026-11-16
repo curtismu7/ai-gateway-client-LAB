@@ -12,6 +12,6 @@ services:
       MODE: "mock"
       LAB_ALLOWED_HOSTS: ${LAB_ALLOWED_HOSTS:-ai-gateway-client.local.ping-devops.com}
     env_file:
-      - path: ${STANDALONE_ENV:-../.env}
+      - path: ${STANDALONE_ENV:-${HOME}/Development/.env}
         required: false
     restart: unless-stopped
