@@ -3,6 +3,7 @@ import InspectorShell from './components/shared/InspectorShell';
 import InspectorTabs from './components/shared/InspectorTabs';
 import ModeToggle from './components/ModeToggle';
 import TopMenu from './top-menu/TopMenu';
+import VerifyMark from './components/VerifyMark.jsx';
 import { useThemeOptional } from './context/ThemeContext';
 import FlowDiagram from './components/FlowDiagram';
 import TalkTrackPanel from './components/TalkTrackPanel';
@@ -534,7 +535,9 @@ export default function App() {
           help={{ href: 'https://github.com/curtismu7/ai-gateway-client-LAB#readme' }}
           version={state.mode?.version || null}
           onReset={reset}
-        />
+        >
+          <VerifyMark id="ai-gateway-client" />
+        </TopMenu>
       }
       left={left}
       middle={middle}
