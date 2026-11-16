@@ -268,21 +268,43 @@ function denyResponse(what) {
   return { status: 403, body: { error: `denied by gateway policy (mock): ${what}` } };
 }
 
+const itemName = (item) => item.name || item.uri || item.uriTemplate;
+
+// What the policy computed for one item the caller asked for (tools/call, resources/read, prompts/get), written to `checks` as it is
+// decided, for the trace. Returns true when the caller's grants hide the item (the gateway then answers 403). Only the policy door has a policy.
+function grantCheck(checks, door, item, grants, what) {
+  if (!door.policy) return false;
+  const denied = samples.hidden([item], door, grants).length > 0;
+  checks?.push({
+    id: 'grant', label: 'Grant', outcome: denied ? 'fail' : 'pass',
+    evidence: denied ? `the caller's grants do not include ${what}, so the gateway answers 403 (denied by gateway policy)` : `the caller's grants include ${what}`,
+  });
+  return denied;
+}
+
 /** A paged list result for one kind (tools, resources, ...). The policy door adds what it hid to _meta on the first page. */
-function listResult(id, sample, door, grants, spec, params) {
+function listResult(id, sample, door, grants, spec, params, checks) {
   const all = samples.visible(spec.items, door, grants);
   const paged = samples.page(all, spec.kind, params.cursor, sample.pageSize);
   if (paged.error) return rpcError(id, -32602, paged.error);
   const result = { [spec.key]: paged.items.map(spec.shape) };
   if (paged.nextCursor) result.nextCursor = paged.nextCursor;
   const hiddenItems = samples.hidden(spec.items, door, grants);
+  if (door.policy) {
+    checks?.push({
+      id: 'filter', label: 'List filter', outcome: hiddenItems.length ? 'info' : 'pass',
+      evidence: hiddenItems.length
+        ? `the policy kept ${all.length} and hid ${hiddenItems.length} from this caller: ${hiddenItems.map(itemName).join(', ')}`
+        : `the caller's grants cover all ${all.length}: nothing was hidden`,
+    });
+  }
   if (spec.meta && hiddenItems.length && !params.cursor) {
     result._meta = { [spec.meta]: hiddenItems.map((item) => deniedEntry(item, spec.deniedFields)) };
   }
   return rpcResult(id, result);
 }
 
-function mcpHandle(url, doorPath, door, rpc, claims = {}) {
+function mcpHandle(url, doorPath, door, rpc, claims = {}, checks = undefined) {
   const { id, method, params = {} } = rpc;
   const sample = activeSample();
   const grants = Array.isArray(claims.grants) ? claims.grants : samples.MOCK_USER_GRANTS;
@@ -298,13 +320,13 @@ function mcpHandle(url, doorPath, door, rpc, claims = {}) {
   if (method === 'tools/list') {
     return listResult(id, sample, door, grants, {
       kind: 'tools', key: 'tools', items: sample.tools, shape: samples.publicTool, meta: 'deniedTools', deniedFields: ['name', 'title', 'description'],
-    }, params);
+    }, params, checks);
   }
   if (method === 'tools/call') {
     const name = params.name;
     const tool = sample.tools.find((t) => t.name === name);
     if (!tool) return rpcError(id, -32602, `Unknown tool: ${name}`);
-    if (door.policy && samples.hidden([tool], door, grants).length) return denyResponse(name);
+    if (grantCheck(checks, door, tool, grants, name)) return denyResponse(name);
     const required = tool.inputSchema.required || [];
     const missing = required.filter((k) => params.arguments?.[k] === undefined || params.arguments?.[k] === '');
     if (missing.length) return rpcError(id, -32602, `Missing required argument(s): ${missing.join(', ')}`);
@@ -319,19 +341,19 @@ function mcpHandle(url, doorPath, door, rpc, claims = {}) {
     if (method === 'resources/list') {
       return listResult(id, sample, door, grants, {
         kind: 'resources', key: 'resources', items: sample.resources, shape: samples.publicResource, meta: 'deniedResources', deniedFields: ['uri', 'name', 'title', 'description'],
-      }, params);
+      }, params, checks);
     }
     if (method === 'resources/templates/list') {
       return listResult(id, sample, door, grants, {
         kind: 'templates', key: 'resourceTemplates', items: sample.templates, shape: samples.publicTemplate,
-      }, params);
+      }, params, checks);
     }
     if (method === 'resources/read') {
       const uri = params.uri;
       if (typeof uri !== 'string' || !uri) return rpcError(id, -32602, 'uri is required');
       const known = sample.resources.find((r) => r.uri === uri);
       if (known) {
-        if (door.policy && samples.hidden([known], door, grants).length) return denyResponse(uri);
+        if (grantCheck(checks, door, known, grants, uri)) return denyResponse(uri);
         return rpcResult(id, { contents: [{ uri, mimeType: known.mimeType, text: known.text }] });
       }
       for (const template of sample.templates) {
@@ -348,12 +370,12 @@ function mcpHandle(url, doorPath, door, rpc, claims = {}) {
     if (method === 'prompts/list') {
       return listResult(id, sample, door, grants, {
         kind: 'prompts', key: 'prompts', items: sample.prompts, shape: samples.publicPrompt, meta: 'deniedPrompts', deniedFields: ['name', 'title', 'description'],
-      }, params);
+      }, params, checks);
     }
     if (method === 'prompts/get') {
       const prompt = (sample.prompts || []).find((p) => p.name === params.name);
       if (!prompt) return rpcError(id, -32602, `Unknown prompt: ${params.name}`);
-      if (door.policy && samples.hidden([prompt], door, grants).length) return denyResponse(prompt.name);
+      if (grantCheck(checks, door, prompt, grants, prompt.name)) return denyResponse(prompt.name);
       const args = params.arguments || {};
       const missing = prompt.arguments.filter((a) => a.required && (args[a.name] === undefined || args[a.name] === '')).map((a) => a.name);
       if (missing.length) return rpcError(id, -32602, `Missing required argument(s): ${missing.join(', ')}`);
@@ -366,16 +388,24 @@ function mcpHandle(url, doorPath, door, rpc, claims = {}) {
 
 
 
-async function mcpRoute(url, req, doorPath, door) {
+async function mcpRoute(url, req, doorPath, door, checks) {
   const auth = req.headers.get('authorization') || '';
   const token = auth.match(/^Bearer\s+(\S+)/i)?.[1];
-  if (!token) return new Response(null, { status: 401, headers: challenge(doorPath) });
+  if (!token) {
+    checks?.push({ id: 'authenticated', label: 'Access token', outcome: 'fail', evidence: 'the request carries no Authorization header, so the gateway answers 401 with a challenge that says where to sign in' });
+    return new Response(null, { status: 401, headers: challenge(doorPath) });
+  }
   const claims = verify(token);
   if (!claims || claims.iss !== MOCK_IDP_ORIGIN) {
+    checks?.push({ id: 'authenticated', label: 'Access token', outcome: 'fail', evidence: 'the bearer token was not issued by the mock sign-in server (bad signature or issuer), so the gateway answers 401 invalid_token' });
     return new Response(JSON.stringify({ error: 'invalid_token', 'x-simulated': SIMULATED }), {
       status: 401,
       headers: { 'content-type': 'application/json', 'WWW-Authenticate': `Bearer error="invalid_token", resource_metadata="${MOCK_GATEWAY_ORIGIN}${PRM_PATH}${doorPath}"` },
     });
+  }
+  checks?.push({ id: 'authenticated', label: 'Access token', outcome: 'pass', evidence: 'the bearer token is signed by the mock sign-in server' });
+  if (!door.policy) {
+    checks?.push({ id: 'policy', label: 'Gateway policy', outcome: 'info', evidence: 'this is the Direct door: no gateway sits in front of the server, so no policy ran and nothing is filtered or refused' });
   }
   if (req.method === 'GET') {
     // No server-initiated stream in the mock: a 405 is what a gateway without one answers.
@@ -386,12 +416,12 @@ async function mcpRoute(url, req, doorPath, door) {
   try { rpc = JSON.parse(await req.text()); } catch { return json(rpcError(null, -32700, 'Parse error'), 400); }
   if (rpc.id === undefined) return new Response(null, { status: 202 });
   const sessionHeader = { 'mcp-session-id': `mock-${crypto.createHash('sha1').update(token).digest('hex').slice(0, 16)}` };
-  const out = mcpHandle(url, doorPath, door, rpc, claims);
+  const out = mcpHandle(url, doorPath, door, rpc, claims, checks);
   if (out.status === 403) return json(out.body, 403, sessionHeader);
   return json(out, 200, sessionHeader);
 }
 
-async function gatewayHandle(url, req) {
+async function gatewayHandle(url, req, checks) {
   if (url.pathname.startsWith(PRM_PATH)) {
     const doorPath = url.pathname.slice(PRM_PATH.length);
     const door = DOORS[doorPath];
@@ -406,14 +436,15 @@ async function gatewayHandle(url, req) {
   }
   const door = DOORS[url.pathname];
   if (!door) return json({ error: 'not_found', 'x-simulated': SIMULATED }, 404);
-  return mcpRoute(url, req, url.pathname, door);
+  return mcpRoute(url, req, url.pathname, door, checks);
 }
 
 /** Serves one request for a mock origin. Returns a fetch-style Response. */
 async function handle(url, init = {}) {
   const req = new Request(url, init);
   if (url.origin === MOCK_IDP_ORIGIN) return idpHandle(url, req);
-  return gatewayHandle(url, req);
+  // `init.checks` (optional): an array this call fills with what the gateway decided, for the trace. Request() ignores the extra member.
+  return gatewayHandle(url, req, Array.isArray(init.checks) ? init.checks : undefined);
 }
 
 module.exports = {

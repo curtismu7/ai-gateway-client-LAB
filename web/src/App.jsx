@@ -12,12 +12,14 @@ import CatalogBar from './components/CatalogBar';
 import { HiddenNotice, PromptDetail, ResourceDetail, TemplateDetail, ToolDetails, ToolSchema } from './components/ItemDetail';
 import { fromDoorCounts, summarise } from './lib/catalog';
 import Json from './components/JsonPane';
+import TracePanel from './components/TracePanel';
 import { api } from './lib/api';
 
 const OUTPUT_TABS = [
   { key: 'response', label: 'Response' },
   { key: 'request', label: 'Request' },
   { key: 'log', label: 'Relay log' },
+  { key: 'trace', label: 'Trace' },
   { key: 'flow', label: 'Flow' },
   { key: 'talk', label: 'Talk track' },
 ];
@@ -79,6 +81,9 @@ export default function App() {
   const [lastInvoke, setLastInvoke] = useState(null);
   const [lastTiming, setLastTiming] = useState(null);
   const [outputTab, setOutputTab] = useState('response');
+  // Bumped after every action that talks to a door, so the What Privilege did tab reloads the newest exchanges.
+  const [traceRev, setTraceRev] = useState(0);
+  useEffect(() => { setTraceRev((n) => n + 1); }, [lastInvoke, lastTiming, catalog, probeResults]);
 
   const [rawMethod, setRawMethod] = useState('resources/list');
   const [rawParams, setRawParams] = useState('{}');
@@ -499,6 +504,8 @@ export default function App() {
         <TalkTrackPanel />
       ) : outputTab === 'flow' ? (
         <FlowDiagram name="auth-code-pkce" />
+      ) : outputTab === 'trace' ? (
+        <TracePanel source={isMock ? 'mock' : 'real'} refreshKey={traceRev} />
       ) : outputTab === 'log' ? (
         <div className="relay-log">
           {events.length === 0 && <div className="tool-tree__empty">No relay activity yet.</div>}

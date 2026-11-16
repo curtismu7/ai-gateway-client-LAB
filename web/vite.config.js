@@ -9,7 +9,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   // vitest: the component tests under src (the node:test files in test/ run with node --test).
-  test: { environment: 'jsdom', include: ['src/**/*.test.jsx'] },
+  test: { environment: 'jsdom', include: ['src/**/*.test.jsx'], setupFiles: ['./src/testSetup.js'] },
   server: {
     port: 5174,
     proxy: {

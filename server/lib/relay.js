@@ -25,6 +25,7 @@ const netguard = require('./netguard');
 const mockGateway = require('./mockGateway');
 const mockSamples = require('./mockSamples');
 const diagrams = require('./diagrams');
+const gatewayTrace = require('./gatewayTraceLog');
 
 const { guardedFetch } = netguard;
 
@@ -173,6 +174,11 @@ function emitEvent(_session, type, payload) {
   const msg = `event: ${type}\ndata: ${JSON.stringify({ ts: new Date().toISOString(), ...payload })}\n\n`;
   for (const client of sseClients) client.write(msg);
 }
+
+// The newest action's gateway exchanges, for the "What Privilege did" tab. Already redacted when they were recorded.
+router.get('/trace', (_req, res) => {
+  res.set('Cache-Control', 'no-store').json(gatewayTrace.latest());
+});
 
 router.get('/events', (req, res) => {
   res.writeHead(200, {
@@ -390,6 +396,11 @@ async function fetchMcp(sess, pathname, body, withAuth = true, allowRefreshRetry
 
   emitEvent(sess, 'relay', { direction: 'client->mcp', method: 'POST', url: targetUrl.toString(), body: requestBody });
 
+  // "What Privilege did" (rule 25): this is the one place every gateway call passes. The mock gateway fills `checks` with what it decided.
+  const ticket = gatewayTrace.begin();
+  const checks = ticket && targetUrl.origin === mockGateway.MOCK_GATEWAY_ORIGIN ? [] : null;
+  const traceBase = { sess, ticket, targetUrl, headers: { ...headers }, rpc: requestBody, checks };
+
   // Some gateway proxies hang a POST that arrives while this session's
   // eventStream GET is held open. Race a timeout only when that stream is
   // actually active — every other call is unaffected.
@@ -400,6 +411,7 @@ async function fetchMcp(sess, pathname, body, withAuth = true, allowRefreshRetry
     headers,
     body: JSON.stringify(requestBody),
     ...(abortController ? { signal: abortController.signal } : {}),
+    ...(checks ? { checks } : {}),
   });
   let response;
   if (streamGuardActive) {
@@ -412,13 +424,22 @@ async function fetchMcp(sess, pathname, body, withAuth = true, allowRefreshRetry
       clearTimeout(timeoutId);
     } catch (err) {
       clearTimeout(timeoutId);
-      if (err.message !== 'EVENT_STREAM_GUARD_TIMEOUT') throw err;
+      if (err.message !== 'EVENT_STREAM_GUARD_TIMEOUT') {
+        gatewayTrace.recordFailure({ ...traceBase, error: err.message });
+        throw err;
+      }
+      gatewayTrace.recordFailure({ ...traceBase, error: `the gateway did not answer within ${EVENT_STREAM_GUARD_TIMEOUT_MS} ms while the event stream was open; the lab gave up on this attempt and sends the request again without the stream` });
       abortController.abort();
       disableMcpEventStream(sess);
       return fetchMcp(sess, pathname, body, withAuth, allowRefreshRetry);
     }
   } else {
-    response = await fetchPromise;
+    try {
+      response = await fetchPromise;
+    } catch (err) {
+      gatewayTrace.recordFailure({ ...traceBase, error: err.message });
+      throw err;
+    }
   }
   const text = await response.text();
   const parsed = decodeMcpBody(text);
@@ -435,6 +456,8 @@ async function fetchMcp(sess, pathname, body, withAuth = true, allowRefreshRetry
     headers: { 'www-authenticate': response.headers.get('www-authenticate'), 'mcp-session-id': responseSessionId },
     body: parsed,
   });
+
+  gatewayTrace.record({ ...traceBase, response, text, parsed });
 
   if (!response.ok) {
     if (response.status === 401 && withAuth && allowRefreshRetry && await refreshAccessToken(sess)) {
@@ -1251,7 +1274,7 @@ router.post('/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/tools/list', express.json(), async (req, res) => {
+router.post('/tools/list', express.json(), gatewayTrace.traced('tools/list', async (req, res) => {
   const sess = getSession(req);
   try {
     if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated — click Sign In.' });
@@ -1262,9 +1285,9 @@ router.post('/tools/list', express.json(), async (req, res) => {
     emitEvent(sess, 'error', { scope: 'tools_list', message: err.message });
     res.status(relayFailureStatus(err)).json({ error: err.message });
   }
-});
+}));
 
-router.post('/tools/call', express.json(), async (req, res) => {
+router.post('/tools/call', express.json(), gatewayTrace.traced('tools/call', async (req, res) => {
   const sess = getSession(req);
   try {
     if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
@@ -1276,7 +1299,7 @@ router.post('/tools/call', express.json(), async (req, res) => {
     emitEvent(sess, 'error', { scope: 'tools_call', message: err.message });
     res.status(relayFailureStatus(err)).json({ error: err.message });
   }
-});
+}));
 
 // What each list is called, which capability gates it, and where the gateway reports what it hid.
 const CATALOG_LISTS = [
@@ -1287,7 +1310,7 @@ const CATALOG_LISTS = [
 ];
 const METHOD_NOT_FOUND = -32601;
 
-router.get('/catalog', async (req, res) => {
+router.get('/catalog', gatewayTrace.traced('catalog', async (req, res) => {
   const sess = getSession(req);
   try {
     if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
@@ -1320,9 +1343,9 @@ router.get('/catalog', async (req, res) => {
     emitEvent(sess, 'error', { scope: 'catalog', message: err.message });
     res.status(relayFailureStatus(err)).json({ error: err.message });
   }
-});
+}));
 
-router.post('/request', express.json(), async (req, res) => {
+router.post('/request', express.json(), gatewayTrace.traced('request', async (req, res) => {
   const sess = getSession(req);
   try {
     if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
@@ -1334,7 +1357,7 @@ router.post('/request', express.json(), async (req, res) => {
     emitEvent(sess, 'error', { scope: 'mcp_request', message: err.message });
     res.status(relayFailureStatus(err)).json({ error: err.message, ...(err.rpcError ? { rpcError: err.rpcError } : {}) });
   }
-});
+}));
 
 router.post('/subscriptions/start', express.json(), async (req, res) => {
   const sess = getSession(req);
@@ -1355,7 +1378,7 @@ router.delete('/subscriptions', (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/rpc', express.json(), async (req, res) => {
+router.post('/rpc', express.json(), gatewayTrace.traced('rpc', async (req, res) => {
   const sess = getSession(req);
   try {
     if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
@@ -1371,7 +1394,7 @@ router.post('/rpc', express.json(), async (req, res) => {
     emitEvent(sess, 'error', { scope: 'raw_rpc', message: err.message });
     res.status(relayFailureStatus(err)).json({ error: err.message });
   }
-});
+}));
 
 // A throwaway session that borrows the caller's identity but keeps its own
 // MCP state, so probing another door cannot clobber the live negotiated
@@ -1381,6 +1404,8 @@ function probeSessionFor(sess, mcpUrl) {
     config: { ...sess.config, mcpUrl },
     oauth: sess.oauth,
     gatewayMode: sess.gatewayMode,
+    // The probed URL is its own door, whatever mode the operator is in: the trace labels it by where it points.
+    traceDoor: mcpUrl.startsWith(`${privilegeHost()}/`) ? 'privilege' : 'direct',
     tools: [],
     toolPolicy: { permitted: [], filtered: [], total: 0 },
     mcpSession: { era: null, initialized: false, protocolVersion: null, sessionId: null, nextRequestId: 1, capabilities: {}, serverInfo: null, instructions: '' },
@@ -1394,7 +1419,7 @@ function probeSessionFor(sess, mcpUrl) {
 // "denied here; does this identity work anywhere else?" — a policy denial
 // often answers with a bare 403 and no detail, so the only way to tell a
 // missing grant from a wrong door is to try the other doors with the same token.
-router.post('/doors/probe', express.json(), async (req, res) => {
+router.post('/doors/probe', express.json(), gatewayTrace.traced('doors/probe', async (req, res) => {
   const sess = getSession(req);
   if (!isAuthed(sess)) return res.status(401).json({ error: 'Not authenticated.' });
   const urls = [...new Set((Array.isArray(req.body?.urls) ? req.body.urls : []).filter((u) => typeof u === 'string' && u))]
@@ -1412,7 +1437,7 @@ router.post('/doors/probe', express.json(), async (req, res) => {
     }
   }));
   res.json({ results });
-});
+}));
 
 router.post('/console/connect', express.json(), async (req, res) => {
   const sess = getSession(req);
@@ -1606,6 +1631,7 @@ module.exports.__test = {
 function resetSession() {
   netguard.forgetLiveOrigins();
   mockGateway.reset();
+  gatewayTrace.clear();
   session = freshSession();
   dcrClientCache.clear();
 }
