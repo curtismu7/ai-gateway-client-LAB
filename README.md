@@ -46,6 +46,7 @@ Then open http://127.0.0.1:6880. It defaults to the **Privilege** door on the pu
 - **Raw MCP requests** — anything that isn't `tools/call`: resources, prompts, completion, tasks.
 - **Doors probe** — "denied here — does this identity work anywhere else?" Tries the current token against every other configured door in one click. A `401` can mark a different OAuth audience; a `403` can indicate a policy denial.
 - **Relay log** — every request/response this tool sends and receives, live over SSE, so you can see exactly what went over the wire.
+- **What Privilege did (Trace tab)** — for the latest action (a tool call, a catalog load, a raw request, a doors probe), every request the lab sent through the door: the exact request, the exact response and the decisions in between. In Mock the lab's own simulated gateway computed the token and policy checks (marked *checked*). In Live the gateway reports no per-check detail, so decisions are only *inferred* from the status or *observed* in the reply. A Direct-door call is shown as having no gateway in the path. Tokens and session ids are never shown. The panel is the shared `GatewayTrace`, vendored byte for byte and pinned by a hash.
 - **Privilege console door discovery** (optional) — paste your Privilege console session's `auth_token` cookie to pull in every Agentic App and policy registered on your environment as selectable doors, no code change or redeploy needed.
 
 ## Mock and live mode
