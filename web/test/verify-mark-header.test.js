@@ -60,7 +60,7 @@ test('shows this lab\'s own mark and no other lab\'s, with the note as its toolt
   });
   assert.equal(seen.length, 1);
   assert.equal(seen[0].url, '/api/shelf');
-  assert.equal(seen[0].init.credentials, 'omit');
+  assert.equal(seen[0].init.credentials, 'same-origin');
   assert.equal((html.match(/class="verify"/g) || []).length, 1, html);
   assert.match(html, /data-status="verified"/);
   assert.match(html, />Verified</);
