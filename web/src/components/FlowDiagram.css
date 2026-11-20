@@ -76,88 +76,6 @@
   opacity: 0;
 }
 
-/* Edge labels live in screen space on top of the canvas, so their text keeps its size at any zoom. */
-.flow-labels {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 5;
-  overflow: hidden;
-}
-
-.flow-labels__leaders {
-  position: absolute;
-  inset: 0;
-}
-
-.flow-labels__leaders line {
-  stroke: var(--muted);
-  stroke-width: 1;
-}
-
-.flow-label {
-  position: absolute;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
-  font-family: var(--font-primary);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.flow-label--badge {
-  border-radius: 50%;
-  border: 2px solid var(--text);
-  font-weight: 700;
-}
-
-.flow-label[data-state="on"] {
-  border-color: var(--accent);
-}
-
-.flow-legend {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-  color: var(--text);
-}
-
-.flow-legend__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.flow-legend__num {
-  flex: none;
-  box-sizing: border-box;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid var(--text);
-  border-radius: 50%;
-  background: var(--surface);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.flow-legend__item[data-state="on"] .flow-legend__num {
-  border-color: var(--accent);
-}
-
 /* Narrow on purpose: test/diagramLayout.test.js checks the whole diagram still fits a 375px phone at the zoom floor. */
 .flow-node {
   width: 160px;
@@ -223,3 +141,7 @@
 @media (max-width: 600px) {
   .flow-canvas { height: 380px; }
 }
+
+/* An expanded diagram box (the shared diagram kit's Passport) is wide enough for its details. */
+.react-flow__node.dk-open { width: 320px; }/* An expanded diagram box (the shared diagram kit's Passport) is wide enough for its details. */
+.react-flow__node.dk-open { width: 320px; }

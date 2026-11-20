@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ReactFlow, Background, BaseEdge, MarkerType, Position, useNodesState, useStore, useViewport } from '@xyflow/react';
+import { ReactFlow, Background, BaseEdge, MarkerType, Position, useNodesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { ArrowNoLabel, EdgeLabels, FitOpen, Passport, PassportActions } from '../diagram-kit/DiagramKit.jsx';
+import { boxPassport, sidePoint } from '../diagram-kit/diagramKit.js';
+import '../diagram-kit/diagram-kit.css';
 import './FlowDiagram.css';
 import { api } from '../lib/api';
 import { routeEdges, polylinePath } from '../lib/edgeRouting';
-import { placeLabels } from '../lib/labelPlacement';
 import { boundsOf, createFitTracker, debounce, fitViewport, legibleZoom, MAX_ZOOM, revealViewport, shouldRefit } from '../lib/viewFit';
 
 // Playback pause between steps, by speed setting.
@@ -48,7 +50,7 @@ export function nodeRects(nodes) {
   }));
 }
 
-// The path comes from routeEdges (own lane per edge). The text is not drawn here: LabelLayer places it.
+// The path comes from routeEdges (own lane per edge). The label text is drawn by the diagram kit's EdgeLabels.
 function LaneEdge({ id, data, markerEnd, style }) {
   return <BaseEdge id={id} path={data.d} markerEnd={markerEnd} style={style} />;
 }
@@ -71,71 +73,22 @@ export function buildEdges(diagram, lit, routes) {
   });
 }
 
-const LABEL_FONT_PX = 11;
-const BADGE_PX = 20;
-const LABEL_H = 22;
-
-function useLabelWidths(texts, fontTick) {
-  return useMemo(() => {
-    const ctx = document.createElement('canvas').getContext('2d');
-    const family = getComputedStyle(document.body).fontFamily || 'sans-serif';
-    ctx.font = `600 ${LABEL_FONT_PX}px ${family}`;
-    return texts.map((t) => Math.ceil(ctx.measureText(t).width * 1.05) + 18);
-    // fontTick re-measures once the web font has loaded.
-  }, [texts, fontTick]); // eslint-disable-line react-hooks/exhaustive-deps
+// One label item per arrow, for the kit's EdgeLabels layer (above the boxes, never overlapping).
+export function toLabelItems(diagram, lit) {
+  return diagram.edges.map((e, i) => ({
+    id: `e${i}`,
+    text: e.label || '',
+    source: e.source,
+    target: e.target,
+    active: lit.has(i),
+    dim: lit.size > 0 && !lit.has(i),
+  }));
 }
 
-/**
- * Edge labels, drawn in screen space so their text stays at LABEL_FONT_PX at any zoom. Each label gets its own
- * spot along its own edge (placeLabels). Too tight for text: a numbered badge, and the text goes to the legend.
- * Runs again on every box move and every pan or zoom, so a label follows its edge.
- */
-function LabelLayer({ labels, routes, rects, lit, onModes }) {
-  const { x, y, zoom } = useViewport();
-  const width = useStore((s) => s.width);
-  const height = useStore((s) => s.height);
-  const [fontTick, setFontTick] = useState(0);
-  useEffect(() => { document.fonts?.ready.then(() => setFontTick((n) => n + 1)); }, []);
-  const widths = useLabelWidths(labels, fontTick);
-
-  const placed = useMemo(() => {
-    if (!width || !height) return [];
-    const toScreen = (p) => ({ x: p.x * zoom + x, y: p.y * zoom + y });
-    const items = labels.map((text, i) => ({
-      id: i,
-      points: (routes[i]?.points || []).map(toScreen),
-      text: { w: widths[i], h: LABEL_H },
-      badge: { w: BADGE_PX, h: BADGE_PX },
-      badgeOnly: (routes[i]?.lanes || 1) > 1,
-    })).filter((it) => labels[it.id] && it.points.length > 1);
-    const obstacles = rects.map((r) => ({ x: r.x * zoom + x, y: r.y * zoom + y, w: r.w * zoom, h: r.h * zoom }));
-    return placeLabels({ items, obstacles, bounds: { x: 0, y: 0, w: width, h: height }, pad: 4 });
-  }, [labels, routes, rects, x, y, zoom, width, height, widths]);
-
-  const key = placed.map((p) => `${p.id}:${p.mode}`).join(',');
-  useEffect(() => { onModes(placed); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <div className="flow-labels">
-      <svg className="flow-labels__leaders" width={width} height={height} aria-hidden="true">
-        {placed.filter((p) => p.leader && p.mode !== 'listed').map((p) => (
-          <line key={p.id} x1={p.anchor.x} y1={p.anchor.y} x2={p.box.x + p.box.w / 2} y2={p.box.y + p.box.h / 2} />
-        ))}
-      </svg>
-      {placed.filter((p) => p.mode !== 'listed').map((p) => (
-        <div
-          key={p.id}
-          className={`react-flow__edge-label flow-label${p.mode === 'badge' ? ' flow-label--badge' : ''}`}
-          data-state={lit.has(p.id) ? 'on' : undefined}
-          style={{ left: p.box.x, top: p.box.y, width: p.box.w, height: p.box.h }}
-          title={labels[p.id]}
-          aria-label={p.mode === 'badge' ? `${p.id + 1}: ${labels[p.id]}` : undefined}
-        >
-          {p.mode === 'badge' ? p.id + 1 : labels[p.id]}
-        </div>
-      ))}
-    </div>
-  );
+// The facing sides of the two boxes: out on the right, in on the left; an arrow that points back to the left is swapped.
+export function labelSides(diagram) {
+  const at = Object.fromEntries(diagram.nodes.map((n) => [n.id, { x: Number(n.x) || 0, y: Number(n.y) || 0 }]));
+  return diagram.edges.map((e) => (at[e.target].x >= at[e.source].x ? ['r', 'l'] : ['l', 'r']));
 }
 
 export default function FlowDiagram({ name }) {
@@ -145,7 +98,7 @@ export default function FlowDiagram({ name }) {
   const [step, setStep] = useState(-1); // -1 = not started
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState('normal');
-  const [placed, setPlaced] = useState([]);
+  const [open, setOpen] = useState(null); // the id of the expanded box, or null
   const flowRef = useRef(null);
   const canvasRef = useRef(null);
   const [ready, setReady] = useState(false);
@@ -172,12 +125,24 @@ export default function FlowDiagram({ name }) {
   const rects = useMemo(() => nodeRects(nodes), [nodes]);
   const routes = useMemo(() => (diagram ? routeEdges(rects, diagram.edges) : []), [diagram, rects]);
   const edges = useMemo(() => (diagram ? buildEdges(diagram, lit, routes) : []), [diagram, lit, routes]);
-  const labels = useMemo(() => (diagram ? diagram.edges.map((e) => e.label || '') : []), [diagram]);
-  const nodeName = useMemo(() => new Map((diagram?.nodes || []).map((n) => [n.id, n.label])), [diagram]);
-  const onModes = useCallback((next) => setPlaced((prev) => (
-    prev.length === next.length && prev.every((p, i) => p.mode === next[i].mode) ? prev : next
-  )), []);
-  const legend = placed.filter((p) => p.mode !== 'text').map((p) => p.id);
+  const items = useMemo(() => (diagram ? toLabelItems(diagram, lit) : []), [diagram, lit]);
+  const sides = useMemo(() => (diagram ? labelSides(diagram) : []), [diagram]);
+  const graph = useMemo(() => (diagram ? {
+    nodes: diagram.nodes.map((n) => ({ id: n.id, label: n.label, sub: n.sub || [], group: n.group })),
+    edges: diagram.edges.map((e) => ({ source: e.source, target: e.target, label: e.label || '' })),
+    groups: diagram.groups,
+  } : null), [diagram]);
+  const withPassport = useMemo(() => nodes.map((n) => ({
+    ...n,
+    zIndex: n.id === open ? 10 : undefined,
+    className: `${n.className ?? ''}${n.id === open ? ' dk-open' : ''}`,
+    data: { ...n.data, passport: n.id === open && graph ? boxPassport(graph, n.id) : null },
+  })), [nodes, open, graph]);
+  const actions = useMemo(() => ({
+    open: (id) => setOpen(id),
+    close: () => setOpen(null),
+    link: (id) => { const u = new URL(window.location.href); u.searchParams.set('box', id); return u.toString(); },
+  }), []);
 
   // Simulate walks the steps in order, then stops on the last one.
   useEffect(() => {
@@ -253,6 +218,7 @@ export default function FlowDiagram({ name }) {
   const reset = useCallback(() => {
     setPlaying(false);
     setStep(-1);
+    setOpen(null);
     if (diagram) {
       setNodes((prev) => {
         const size = new Map(prev.map((n) => [n.id, n.measured]));
@@ -301,37 +267,29 @@ export default function FlowDiagram({ name }) {
         <span className="flow-panel__count">{step >= 0 ? `Step ${step + 1} of ${stepCount}` : `${stepCount} steps`}</span>
       </div>
       <div className="flow-canvas" ref={canvasRef}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          edgeTypes={EDGE_TYPES}
-          onNodesChange={onNodesChange}
-          onInit={(rf) => { flowRef.current = rf; setReady(true); }}
-          onMoveStart={(event) => { if (event) tracker.userMoved(); }}
-          minZoom={MIN_ZOOM}
-          maxZoom={MAX_ZOOM}
-          nodesConnectable={false}
-          deleteKeyCode={null}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background gap={20} size={1} />
-          <LabelLayer labels={labels} routes={routes} rects={rects} lit={lit} onModes={onModes} />
-        </ReactFlow>
+        <PassportActions.Provider value={actions}>
+          <ReactFlow
+            nodes={withPassport}
+            edges={edges}
+            edgeTypes={EDGE_TYPES}
+            onNodesChange={onNodesChange}
+            onNodeClick={(_, n) => setOpen((o) => (o === n.id ? null : n.id))}
+            onPaneClick={() => setOpen(null)}
+            onInit={(rf) => { flowRef.current = rf; setReady(true); }}
+            onMoveStart={(event) => { if (event) tracker.userMoved(); }}
+            minZoom={MIN_ZOOM}
+            maxZoom={MAX_ZOOM}
+            nodesConnectable={false}
+            deleteKeyCode={null}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background gap={20} size={1} />
+            <EdgeLabels items={items} pointFor={(box, handle) => sidePoint(box, String(handle))} fallback={{ w: 160, h: 96 }} />
+            <FitOpen open={open} closePadding={0.08} />
+          </ReactFlow>
+        </PassportActions.Provider>
       </div>
       {clipped && <p className="flow-panel__hint">This panel is narrower than the diagram at a readable size. Drag the diagram to pan, or press Fit. Simulate pans to each step.</p>}
-      {legend.length > 0 && (
-        <ol className="flow-legend" aria-label="Arrow labels">
-          {legend.map((i) => (
-            <li key={i} className="flow-legend__item" data-state={lit.has(i) ? 'on' : undefined}>
-              <span className="flow-legend__num">{i + 1}</span>
-              <span>
-                <strong>{nodeName.get(diagram.edges[i].source)} to {nodeName.get(diagram.edges[i].target)}</strong>
-                {': '}{labels[i]}
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
       {currentStep && (
         <div className="flow-step" aria-live="polite">
           <strong>{currentStep.title}</strong>
