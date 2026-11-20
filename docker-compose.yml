@@ -7,7 +7,7 @@ services:
     ports:
       - "127.0.0.1:${HOST_PORT:-6880}:6880"
     environment:
-      SHELF_URL: ${SHELF_URL:-http://127.0.0.1:4400}
+      SHELF_URL: ${SHELF_URL:-https://local.ping-devops.com:8443/demo-shelf}
       PORT: "6880"
       # Rule 26 (owner, 2026-11-17): the boot mode is sticky. MODE=live in the settings file starts the
       # lab in Live on boot, so a rebuild cannot silently drop it back to Mock. Mock stays the default.
