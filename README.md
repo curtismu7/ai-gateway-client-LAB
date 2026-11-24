@@ -102,10 +102,19 @@ Two doors ship for the hostile MCP server (`standalone/hostile-mcp-server`, behi
 
 Switch between the two on the same call to see exactly what Privilege adds. See `docs/superpowers/specs/2026-09-13-hostile-mcp-behind-privilege-design.md`.
 
+## What each layer logged for this run (rule 27)
+
+The **Layers** tab (beside Trace) shows the shared panel for one action: the decisions its gateway exchanges left, across the six layers. Rows are what the lab computed or received; nothing is read from a product log.
+
+- **Where the lines live.** The lab process's stdout: one line per decision, `<time> ai-gateway-client-lab decision step=... layer=... actor=... result=passed|stopped|unclear run=<id>`. Every value passes the masker and the line sanitiser; no field names a matcher word, an access token or a session id.
+- **What is a decision.** The access-token check and the grant check are the Authorize layer: a refused grant is a policy refusal, while a refused access-token check is a credential state and counts as information. The gateway's list filter (what it hid from this caller) is the Agent gateway layer; the MCP server's JSON-RPC answer is the Resource server row: information, never a second decision. In Mock the decisions are what the mock gateway computed (checked); in Real they are what the lab read from your gateway's answers (inferred or observed - a real gateway reports no per-check detail).
+- **The chain.** Person is the mock token's subject (decoded locally) or the workload token in live mode; Scopes are the token's scope claim. The lab has no OBO exchange in the gateway path, so the agent step is empty.
+- **No run, no record.** An action that made no gateway call recorded nothing. The lab keeps the last 12 runs; Reset clears them. The run id rides the answer in `X-Obs-Run` and in the trace answer's `obsRun`.
+
 ## Tests
 
 ```bash
-npm test --prefix server   # node:test, run on Node 26 (77 tests); mock-mode tests prove zero outbound attempts
+npm test --prefix server   # node:test, run on Node 26; mock-mode tests prove zero outbound attempts
 ```
 
 ## Development

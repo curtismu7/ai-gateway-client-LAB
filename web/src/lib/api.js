@@ -12,7 +12,7 @@ async function request(method, path, body) {
   } catch {
     // No JSON body (e.g. 204).
   }
-  return { ok: res.ok, status: res.status, data };
+  return { ok: res.ok, status: res.status, data, obsRun: res.headers.get('x-obs-run') || null };
 }
 
 export const api = {
