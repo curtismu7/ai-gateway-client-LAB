@@ -18,6 +18,20 @@
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { bearerForDisplay, failureTrace, mockTrace, realTrace } = require('../src/gatewayTrace.js');
 const mockGateway = require('./mockGateway');
+const runObs = require('./runObs');
+
+// Rule 27: the observability run log (runObs.js). One action = one run, recorded when the action's FIRST exchange is
+// pushed (the action is then complete enough: its later exchanges add rows to the same run while it is open).
+// The log itself is created asynchronously (the ESM core loads first); pushes before it exists record nothing.
+let runLogPromise = null;
+let runLogSync = null;
+// The chain facts of the action in flight (set by relay.js fetchMcp from the session): the token's subject and scope claim.
+let currentChain = {};
+const runLogOf = async () => {
+  runLogPromise = runLogPromise || runObs.createRunLog();
+  runLogSync = await runLogPromise;
+  return runLogSync;
+};
 
 const als = new AsyncLocalStorage();
 const MAX_ACTIONS = 5;
@@ -30,9 +44,22 @@ const shortId = (v) => (String(v).length > 8 ? `${String(v).slice(0, 8)}… (sho
 const RESPONSE_HEADERS = ['content-type', 'www-authenticate', 'mcp-session-id', 'allow', 'retry-after', 'x-request-id', 'request-id', 'x-correlation-id'];
 const DENIED_KEYS = ['deniedTools', 'deniedResources', 'deniedPrompts'];
 
-/** Route wrapper: opens one action scope per request. Put it INSIDE express.json(): a body-parser callback drops the async context. */
+/** Route wrapper: opens one action scope per request. Put it INSIDE express.json(): a body-parser callback drops the async context.
+ *  When the handler finishes, the action's exchanges become one observability run (rule 27) and ctx.runId carries its id. */
 function traced(label, handler) {
-  return (req, res, next) => als.run({ label, action: null, steps: 0 }, () => handler(req, res, next));
+  return (req, res, next) => als.run({ label, action: null, steps: 0, runId: null }, () => {
+    // The run id rides the answer: X-Obs-Run on every traced action's response, set when res.json first runs
+    // (the run is recorded when the first exchange is pushed, which is always before res.json).
+    if (typeof res.json === 'function' && typeof res.set === 'function') {
+      const json = res.json.bind(res);
+      res.json = (body) => {
+        const id = currentRunId();
+        if (id) res.set('X-Obs-Run', id);
+        return json(body);
+      };
+    }
+    return handler(req, res, next);
+  });
 }
 
 /** Reserves the next step of the current action, or null when no action is open (nothing to record then). */
@@ -40,9 +67,10 @@ function begin() {
   const ctx = als.getStore();
   if (!ctx) return null;
   if (!ctx.action) {
-    ctx.action = { id: nextActionId++, label: ctx.label, at: new Date().toISOString(), exchanges: [] };
+    ctx.action = { id: nextActionId++, label: ctx.label, at: new Date().toISOString(), exchanges: [], __ctx: ctx };
     actions.unshift(ctx.action);
     actions = actions.slice(0, MAX_ACTIONS);
+    runLogOf().catch(() => {}); // have the log ready by the time the first exchange is pushed
   }
   ctx.steps += 1;
   return { action: ctx.action, step: ctx.steps };
@@ -159,17 +187,42 @@ function recordFailure({ sess, ticket, targetUrl, headers, rpc, checks, error })
 
 function push(ticket, door, rpc, status, trace) {
   ticket.action.exchanges.push({ step: ticket.step, title: titleOf(door, rpc), status, door, trace });
+  // Rule 27: record the observability run as soon as this action's exchanges are complete enough — synchronously, so the
+  // run id is available to the route before the answer goes out (recordAction stores it on the action's scope).
+  recordAction(ticket.action && ticket.action.__ctx, currentChain);
 }
+// recordAction above needs the ctx, not just the action: begin() stores it. Kept idempotent (ctx.runId set once).
+function recordAction(ctx, chain = {}) {
+  try {
+    if (!ctx || !ctx.action || !ctx.action.exchanges.length || ctx.runId) return;
+    const runLog = runLogSync;
+    if (!runLog) return;
+    const action = ctx.action;
+    const source = action.exchanges.some((e) => e.trace && e.trace.source === 'real') ? 'real' : 'mock';
+    const id = runLog.mock(() => runObs.actionEvents(action, chain), { source });
+    if (id) ctx.runId = id;
+  } catch { /* the record is a view: it never breaks a call */ }
+}
+/** relay.js sets the chain facts (the token's subject and scope claim) before the exchanges are recorded. */
+function setChain(chain) { currentChain = chain && typeof chain === 'object' ? chain : {}; }
 
 /** The newest action's exchanges in step order (parallel calls finish out of order), or an empty list. */
 function latest() {
   const action = actions[0];
   if (!action) return { action: null, exchanges: [] };
-  return { action: { id: action.id, label: action.label, at: action.at }, exchanges: [...action.exchanges].sort((a, b) => a.step - b.step) };
+  const runId = action.__ctx?.runId ?? null;
+  return { ...(runId ? { obsRun: runId } : {}), action: { id: action.id, label: action.label, at: action.at, ...(runId ? { runId } : {}) }, exchanges: [...action.exchanges].sort((a, b) => a.step - b.step) };
 }
 
 function clear() {
   actions = [];
+  if (runLogPromise) runLogOf().then((rl) => rl.clear()).catch(() => {});
 }
 
-module.exports = { traced, begin, record, recordFailure, latest, clear };
+/** The observability run id the CURRENT action was recorded under (null before the handler finished, or when nothing ran). */
+function currentRunId() {
+  const ctx = als.getStore();
+  return (ctx && ctx.runId) || null;
+}
+
+module.exports = { traced, begin, record, recordFailure, latest, clear, currentRunId, runLogOf, setChain };

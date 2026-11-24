@@ -26,6 +26,7 @@ const mockGateway = require('./mockGateway');
 const mockSamples = require('./mockSamples');
 const diagrams = require('./diagrams');
 const gatewayTrace = require('./gatewayTraceLog');
+const runObs = require('./runObs');
 
 const { guardedFetch } = netguard;
 
@@ -178,6 +179,22 @@ function emitEvent(_session, type, payload) {
 // The newest action's gateway exchanges, for the "What Privilege did" tab. Already redacted when they were recorded.
 router.get('/trace', (_req, res) => {
   res.set('Cache-Control', 'no-store').json(gatewayTrace.latest());
+});
+
+// Rule 27: the record of one observability run (one past action), asked for by the id. The run id also rides the
+// X-Obs-Run response header of every traced action, so a client can read it after the answer it belongs to.
+router.get('/obs/run', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const id = req.query.runId;
+  if (typeof id !== 'string' || !/^act-[0-9a-f]{4}$/.test(id)) return res.status(400).json({ error: 'bad_run_id', message: 'runId must be the id of one run' });
+  const runLog = await gatewayTrace.runLogOf();
+  const run = runLog.get(id);
+  if (!run) return res.json({ record: null, message: 'That run is no longer kept: the lab keeps the last few runs, and Reset clears them.' });
+  try {
+    return res.json({ record: await runObs.recordOf(run) });
+  } catch (err) {
+    return res.status(500).json({ error: 'server_error', message: 'The lab could not build this run\'s record (the server log says why).' });
+  }
 });
 
 router.get('/events', (req, res) => {
@@ -399,6 +416,7 @@ async function fetchMcp(sess, pathname, body, withAuth = true, allowRefreshRetry
   // "What Privilege did" (rule 25): this is the one place every gateway call passes. The mock gateway fills `checks` with what it decided.
   const ticket = gatewayTrace.begin();
   const checks = ticket && targetUrl.origin === mockGateway.MOCK_GATEWAY_ORIGIN ? [] : null;
+  gatewayTrace.setChain(chainOf(sess));
   const traceBase = { sess, ticket, targetUrl, headers: { ...headers }, rpc: requestBody, checks };
 
   // Some gateway proxies hang a POST that arrives while this session's
@@ -1273,6 +1291,19 @@ router.post('/auth/logout', (req, res) => {
   emitEvent(sess, 'oauth', { phase: 'logout' });
   res.json({ ok: true });
 });
+
+// Rule 27: the chain view's facts for this session, only what the session already holds: the mock token's subject and
+// grants (decoded locally, never shown raw), or in live mode the scope the token endpoint returned. No secret is included.
+function chainOf(sess) {
+  try {
+    // The token's payload, read without verifying: display-only, and every value is masked again downstream.
+    const parts = String(sess.oauth.accessToken || '').split('.');
+    const claims = parts.length === 3 ? JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) : null;
+    if (claims && claims.sub) return { user: String(claims.sub), scopes: typeof claims.scope === 'string' ? claims.scope.split(/[\s]+/).filter(Boolean).slice(0, 20) : [] };
+    if (sess.oauth.scope) return { user: 'workload-token', scopes: String(sess.oauth.scope).split(/[\s]+/).filter(Boolean).slice(0, 20) };
+  } catch { /* the chain is a view: it never breaks a call */ }
+  return {};
+}
 
 router.post('/tools/list', express.json(), gatewayTrace.traced('tools/list', async (req, res) => {
   const sess = getSession(req);
