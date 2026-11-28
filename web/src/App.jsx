@@ -3,6 +3,8 @@ import InspectorShell from './components/shared/InspectorShell';
 import InspectorTabs from './components/shared/InspectorTabs';
 import ModeToggle from './components/ModeToggle';
 import TopMenu from './top-menu/TopMenu';
+import HelpDialog from './help-dialog/HelpDialog';
+import { HELP_SECTIONS } from './helpContent';
 import VerifyMark from './components/VerifyMark.jsx';
 import { useThemeOptional } from './context/ThemeContext';
 import FlowDiagram from './components/FlowDiagram';
@@ -56,6 +58,7 @@ function readAndClearAuthResult() {
 
 export default function App() {
   const [state, setState] = useState(null);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [banner, setBanner] = useState(null);
   const [doorUrlInput, setDoorUrlInput] = useState('');
   const [events, setEvents] = useState([]);
@@ -530,6 +533,7 @@ export default function App() {
   );
 
   return (
+    <>
     <InspectorShell
       title="Agent Privilege Client"
       statusOn={state.oauth.authenticated}
@@ -539,7 +543,7 @@ export default function App() {
           mode={{ value: state.mode?.current === 'live' ? 'real' : 'mock', realAvailable: state.mode?.realAvailable !== false, onChange: (m) => changeMode(m === 'real' ? 'live' : m) }}
           theme={{ value: theme, onChange: setTheme }}
           talkTrack={{ active: outputTab === 'talk', onToggle: () => setOutputTab('talk') }}
-          help={{ href: 'https://github.com/curtismu7/ai-gateway-client-LAB#readme' }}
+          help={{ onClick: () => setHelpOpen(true), title: 'What this lab is, and what is simulated' }}
           version={state.mode?.version || null}
           onReset={reset}
         >
@@ -551,5 +555,7 @@ export default function App() {
       right={right}
       banner={pageBanner}
     />
+    <HelpDialog isOpen={helpOpen} onClose={() => setHelpOpen(false)} sections={HELP_SECTIONS} docsUrl="https://github.com/curtismu7/ai-gateway-client-LAB#readme" />
+    </>
   );
 }
